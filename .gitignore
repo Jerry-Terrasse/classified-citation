@@ -162,3 +162,9 @@ cython_debug/
 
 # Data
 data/
+
+# PyEnv
+.python-version
+
+# Temp
+temp/
