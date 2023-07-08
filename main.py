@@ -71,11 +71,11 @@ def get_citations(doc: str) -> list[Citation]:
         if context_start is None or context_end is None:
             breakpoint()
         start_pos = m.start() - context_start.start() + 1
-        end_pos = m.end() + context_end.end()
+        end_pos = m.end() + context_end.start()
         context_latex = doc[start_pos: end_pos].replace("\n", " ")
         
         # context_latex = re.sub(m, f"##CITE[ {m.group(2)} ]", context_latex)
-        context_latex = f"{context_latex[: m.start() - start_pos]}##CITE[ {m.group(2)} ]{context_latex[m.end() - start_pos:]}"
+        context_latex = f"{context_latex[: m.start() - start_pos]}##CITE[ {m.group(2)} ]{context_latex[m.end() - start_pos:]}."
         
         try:
             text = LatexNodes2Text().latex_to_text(context_latex)
