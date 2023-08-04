@@ -5,6 +5,8 @@ from pylatexenc.latexwalker import LatexWalker
 from pylatexenc.latexwalker import LatexMacroNode, LatexNode, LatexEnvironmentNode, LatexNodeList, LatexGroupNode
 from pylatexenc.latex2text import LatexNodes2Text
 
+from gpt_agent import GPTAgent, DavinciAgent
+
 class Bibitem:
     def __init__(self, key: str = "", s: str = "") -> None:
         self.s = s.strip().replace("\n", " ")
@@ -72,7 +74,7 @@ def get_citations(doc: str) -> list[Citation]:
             breakpoint()
         start_pos = m.start() - context_start.start() + 1
         end_pos = m.end() + context_end.start()
-        context_latex = doc[start_pos: end_pos].replace("\n", " ")
+        context_latex = doc[start_pos: end_pos]
         
         # context_latex = re.sub(m, f"##CITE[ {m.group(2)} ]", context_latex)
         context_latex = f"{context_latex[: m.start() - start_pos]}##CITE[ {m.group(2)} ]{context_latex[m.end() - start_pos:]}."
@@ -85,6 +87,7 @@ def get_citations(doc: str) -> list[Citation]:
             breakpoint()
             text = context_latex
         
+        text = text.strip()
         context = Context(context_latex, text, start_pos, m.end() + context_end.start())
         citation = Citation(m, context)
         citations.append(citation)
@@ -144,7 +147,7 @@ def assign_citations(citations: list[Citation], bibitems: dict[str, Bibitem]) ->
                 citation.bind(key, bibitems[key])
 
 if __name__ == "__main__":
-    path = "data/1011.2313"
+    # path = "data/1011.2313"
     path = "data/1706.03762"
     texes = glob.glob(f"{path}/*.tex")
     doc = '\n\n'.join(f.read() for f in map(open, texes))
@@ -153,7 +156,27 @@ if __name__ == "__main__":
     bibitems = get_bibitems(doc)
     assign_citations(citations, bibitems)
     
+    llm = GPTAgent()
+    prompt = """according to "%s",
+whether the author is supporting or against the cited article "%s"?
+ATTENTION: if you think he is supporting, just say "True"; if you think he is against the cited article, just say "False"; if you think he is neutral, just say "Neutral".
+"""
+    
     for i, citation in enumerate(citations):
         print(f"The {i + 1}th citation:")
         print(citation)
         print()
+        if i != 16 and i != 17:
+            continue
+        
+        
+        bibitem_str = ",".join(citation.keys)
+        question = prompt % (citation.context.text, bibitem_str)
+        
+        print(question)
+        answer = llm.predict(question)
+        answer = answer.strip()
+        print(answer)
+        print()
+        
+        # input()
