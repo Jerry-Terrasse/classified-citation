@@ -49,6 +49,7 @@ links = []
 for idx, page in enumerate(pdf.pages):
     writer.add_page(page)
     page_links = []
+    assert page.annotations
     for annot in page.annotations:
         obj = annot.get_object()
         if obj['/Subtype'] == '/Link' and obj['/A']['/S'] == '/GoTo':
@@ -63,7 +64,7 @@ for idx, page in enumerate(pdf.pages):
     page_parser = pdf_parser.get_page(idx + 1)
     for element in page_parser.elements:
         bbox = element.bounding_box
-        rect = [bbox.x0, bbox.y0, bbox.x1, bbox.y1]
+        rect = (bbox.x0, bbox.y0, bbox.x1, bbox.y1)
         if mark_all_texts:
             mark = AnnotationBuilder.rectangle(
                 rect=rect,
