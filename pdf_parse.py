@@ -9,7 +9,7 @@ import sys
 fname = "pdf/2201.02915.pdf"
 # fname = "pdf/2307.00059.pdf"
 # fname = "pdf/2307.00117.pdf" # /FitH
-fname = "pdf/2307.00115.pdf" # KeyError /A
+fname = "pdf/1011.2313.pdf"
 if len(sys.argv) > 1:
     fname = sys.argv[1]
 pdf = PyPDF2.PdfReader(fname)
@@ -95,9 +95,8 @@ links = []
 for idx, page in enumerate(pdf.pages):
     # find links
     page_links = []
-    if page.annotations is None:
-        continue
-    for annot in page.annotations:
+    annots = page.annotations or []
+    for annot in annots:
         obj = annot.get_object()
         if obj['/Subtype'] != '/Link':
             continue
@@ -127,6 +126,8 @@ for idx, page in enumerate(pdf.pages):
                 rect=rect,
             )
             writer.add_annotation(page_number=idx, annotation=mark)
+            # input(">")
+            # writer.write(open("out.pdf", "wb"))
 
         for link in page_links:
             if contains(rect, link.rect, 0.7):
