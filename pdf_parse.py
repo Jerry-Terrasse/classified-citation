@@ -8,13 +8,15 @@ import sys
 
 fname = "pdf/2201.02915.pdf"
 # fname = "pdf/2307.00059.pdf"
+# fname = "pdf/2307.00117.pdf" # /FitH
+fname = "pdf/2307.00115.pdf" # KeyError /A
 if len(sys.argv) > 1:
     fname = sys.argv[1]
 pdf = PyPDF2.PdfReader(fname)
 
 writer = PyPDF2.PdfWriter()
 
-mark_links = True
+mark_links = False
 mark_bibitems = True
 mark_all_texts = False
 mark_link_texts = False
@@ -76,9 +78,11 @@ for idx, page in enumerate(pdf.pages):
 
 bibitems: list[Bibitem] = []
 for name, obj in pdf.named_destinations.items():
+    print(name, obj, obj['/Type'])
     if obj['/Type'] != '/XYZ':
         continue # skip non-XYZ destinations
     bibitems.append(Bibitem(obj, page_id2idx[obj.page.idnum]))
+print("Found", len(bibitems), "bibitems")
 
 if mark_all_bibitems:
     for bib in bibitems:
@@ -91,16 +95,26 @@ links = []
 for idx, page in enumerate(pdf.pages):
     # find links
     page_links = []
-    assert page.annotations
+    if page.annotations is None:
+        continue
     for annot in page.annotations:
         obj = annot.get_object()
-        if obj['/Subtype'] == '/Link' and obj['/A']['/S'] == '/GoTo':
+        if obj['/Subtype'] != '/Link':
+            continue
+        
+        if '/Dest' in obj: # Named Destination
+            pass # TODO
+        elif '/A' in obj: # Action
+            if obj['/A']['/S'] != '/GoTo':
+                continue
             page_links.append(Annotation(obj, idx, obj['/Rect'], obj['/A']['/D']))
             if mark_links:
                 mark = AnnotationBuilder.rectangle(
                     rect=obj['/Rect'],
                 )
                 writer.add_annotation(page_number=idx, annotation=mark)
+        else:
+            breakpoint()
     links.extend(page_links)
 
     # match links to texts
