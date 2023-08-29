@@ -9,7 +9,7 @@ import sys
 fname = "pdf/2201.02915.pdf"
 # fname = "pdf/2307.00059.pdf"
 # fname = "pdf/2307.00117.pdf" # /FitH
-fname = "pdf/1011.2313.pdf"
+# fname = "pdf/1011.2313.pdf"
 if len(sys.argv) > 1:
     fname = sys.argv[1]
 pdf = PyPDF2.PdfReader(fname)
@@ -17,10 +17,10 @@ pdf = PyPDF2.PdfReader(fname)
 writer = PyPDF2.PdfWriter()
 
 mark_links = False
-mark_bibitems = True
-mark_all_texts = False
+mark_bibitems = False
+mark_all_texts = True
 mark_link_texts = False
-mark_all_bibitems = True
+mark_all_bibitems = False
 
 # {'/Type': '/Annot', '/Subtype': '/Link', '/A': {'/Type': '/Action', '/S': '/URI', '/URI': 'https://www.aminer.cn/'}, '/Border': [0, 0, 0], '/C': [0, 1, 1], '/H': '/I', '/Rect': [58.27, 98.089, 128.09, 108.493]}
 # {'/Type': '/Annot', '/Subtype': '/Link', '/A': {'/D': 'cite.Hirsch2005H-index', '/S': '/GoTo'}, '/Border': [0, 0, 0], '/C': [0, 1, 0], '/H': '/I', '/Rect': [459.051, 392.88, 469.383, 400.508]}
@@ -112,6 +112,8 @@ for idx, page in enumerate(pdf.pages):
                     rect=obj['/Rect'],
                 )
                 writer.add_annotation(page_number=idx, annotation=mark)
+                # writer.write(open("out.pdf", "wb"))
+                # input(">")
         else:
             breakpoint()
     links.extend(page_links)

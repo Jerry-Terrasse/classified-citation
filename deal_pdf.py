@@ -217,11 +217,11 @@ def walk_context(layout: LTComponent, cite: Citation, depth: int = 0) -> None:
     """
     if isinstance(layout, LTChar):
         if contains(layout.bbox, cite.rect, 0.1):
-            assert cite.text
+            assert cite.text is not None
             cite.text.append(layout.get_text())
         return
     elif isinstance(layout, LTTextLine):
-        if not contains(layout.bbox, cite.rect):
+        if not contains(layout.bbox, cite.rect, 0.01):
             return
         cite.text = [] # prepare for collecting text
         cite.context = [] # prepare for collecting context
@@ -234,7 +234,9 @@ def walk_context(layout: LTComponent, cite: Citation, depth: int = 0) -> None:
             walk_context(line, cite, depth + 1)
             if match_idx < 0 and cite.context is not None:
                 match_idx = idx
-        assert match_idx >= 0
+        if match_idx < 0:
+            logger.warning(f"Geometry Error")
+            return
         cite.context = cast(list[str], cite.context)
         for i in range(match_idx-1, match_idx+2): # near 2 lines
             if 0 <= i < len(layout):
@@ -250,12 +252,13 @@ def walk_context(layout: LTComponent, cite: Citation, depth: int = 0) -> None:
 def match_context_page(page: LTPage, cites: list[Citation]) -> None:
     for cite in cites: # maybe slow
         walk_context(page, cite)
-        logger.debug(f"Found citation: {cite.text} on page {cite.page} with context {cite.context}")
+        logger.debug(f"Found citation: {cite.text} on page {cite.page} at {cite.rect} with context {cite.context}")
 
 def match_context(pages: list[LTPage], cites: list[Citation]) -> None:
+    cites.sort(key=lambda c: c.page)
     cites_on_pages = {k: list(l) for k, l in groupby(cites, lambda c: c.page)}
     for page in pages:
-        match_context_page(page, cites_on_pages.get(page.pageid, []))
+        match_context_page(page, cites_on_pages.get(page.pageid-1, []))
 
 bib_label_pattern = re.compile(r"\[([\d\w]+)\]")
 def detect_bib_label(text: str) -> str|None:
@@ -271,48 +274,52 @@ def detect_bibs(page: LTPage, split_LR: bool = False) -> list[Bibitem]:
     # TODO: smarter bibitem detection
     textboxes = filter(lambda o: isinstance(o, LTTextBox), page)
     textboxes = cast(list[LTTextBox], textboxes)
-    bibs = map(lambda t: Bibitem(t, page.pageid, t.get_text()), textboxes)
+    bibs = map(lambda t: Bibitem(t, page.pageid-1, t.get_text()), textboxes)
     bibs = list(bibs)
     for bib in bibs:
         if label:=detect_bib_label(bib.text):
             bib.label = label
     return bibs
 
-def match_bibitem_candidate(dest: Destination) -> None:
+def match_bibitem_candidate(cands: list[Bibitem], cite: str) -> Bibitem|None:
+    cite.strip().replace('[', '').replace(']', '')
+    if cite == "":
+        logger.warning(f"Empty citation text")
+        return None
     # First, try to match the label
-    assert dest.linkname
-    dest.linkname = dest.linkname.strip()
-    for bib in dest.candidates:
+    for bib in cands:
         if not bib.label:
             continue
         bib.label = bib.label.strip()
-        if bib.label == dest.linkname:
-            dest.target = bib
-            return
+        if bib.label == cite:
+            return bib
     # Then, try to match the text
-    linkname = dest.linkname.lower()
-    for bib in dest.candidates:
+    linkname = cite.lower()
+    for bib in cands:
         for word in bib.text.split(maxsplit=5)[:5]:
             if ratio(word.lower(), linkname) > 0.8:
-                dest.target = bib
-                return
-    logger.warning(f"Cannot find bibitem for {dest}")
-    return
+                return bib
+    logger.warning(f"Cannot find bibitem for {cite}")
+    return None
 
-def match_bibitem(pages: list[LTPage], dests: list[Destination]) -> list[list[Bibitem]]:
+def match_bibitem(pages: list[LTPage], cites: list[Citation]) -> list[list[Bibitem]]:
     """
     match destinations to bibitems
     @return detected bibitems on each page
     """
     all_bibs: list[list[Bibitem]] = [[] for _ in pages]
-    dests_on_pages = {k: list(l) for k, l in groupby(dests, lambda d: d.page)}
+    cites.sort(key=lambda c: c.destination.page)
+    cites_on_pages = {k: list(l) for k, l in groupby(cites, lambda c: c.destination.page)} # type: ignore
     for page in pages:
         bibs = detect_bibs(page, False)
-        all_bibs[page.pageid] = bibs
-        for dest in dests_on_pages.get(page.pageid, []):
-            cand_box = dest.candidate_box()
-            dest.candidates = [bib for bib in bibs if overlap(cand_box, bib.obj.bbox) > 20]
-            match_bibitem_candidate(dest)
+        all_bibs[page.pageid-1] = bibs
+        for cite in cites_on_pages.get(page.pageid-1, []):
+            assert cite.destination
+            assert cite.text is not None
+            cand_box = cite.destination.candidate_box()
+            cite.destination.candidates = [bib for bib in bibs if overlap(cand_box, bib.obj.bbox) > 20]
+            target = match_bibitem_candidate(cite.destination.candidates, ''.join(cite.text))
+            cite.target = cite.destination.target = target
     return all_bibs
 
 def deal(fname: str) -> PDFResult:
@@ -333,8 +340,7 @@ def deal(fname: str) -> PDFResult:
         else:
             logger.warning(f"Cannot find destination {cite.linkname} for {cite}")
     
-    dests_in_use = [cite.destination for cite in cites if cite.destination]
-    bibs = match_bibitem(pages, dests_in_use)
+    bibs = match_bibitem(pages, cites)
     bibs = sum(bibs, [])
     
     return PDFResult(cites, dests, bibs)
@@ -343,3 +349,5 @@ if __name__ == '__main__':
     fname = "pdf/2201.02915.pdf"
     if len(sys.argv) > 1:
         fname = sys.argv[1]
+    result = deal(fname)
+    result.summary()
