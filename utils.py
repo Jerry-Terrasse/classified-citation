@@ -17,3 +17,8 @@ def contains(big_rect: Rect, small_rect: Rect, threshold: float = 0.7):
 def overlap(rect1: Rect, rect2: Rect) -> float:
     # rect = [x0, y0, x1, y1]
     return geometry.box(*rect1).intersection(geometry.box(*rect2)).area
+
+def area(rect: Rect) -> float:
+    # rect = [x0, y0, x1, y1]
+    return (rect[2] - rect[0]) * (rect[3] - rect[1])
+    # return geometry.box(*rect).area # too slow

@@ -1,6 +1,6 @@
 import sys
 from dataclasses import dataclass
-from itertools import groupby
+from itertools import groupby, chain
 import re
 from Levenshtein import ratio
 
@@ -28,11 +28,11 @@ from pdfminer.converter import PDFPageAggregator
 from pdfminer.pdfpage import PDFPage
 from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
 
-from utils import Rect, Point, contains, overlap
+from utils import Rect, Point, contains, overlap, area
 
 from loguru import logger
 
-from typing import cast
+from typing import cast, Iterator
 
 
 class Bibitem:
@@ -317,7 +317,7 @@ def walk_context(layout: LTComponent, cite: Citation, depth: int = 0) -> None:
 def match_context_page(page: LTPage, cites: list[Citation]) -> None:
     for cite in cites: # maybe slow
         walk_context(page, cite)
-        logger.debug(f"Found citation: {cite.text} on page {cite.page} at {cite.rect} with context {cite.context}")
+        logger.debug(f"Citation: {cite.text} on page {cite.page} at {cite.rect} with context {cite.context}")
 
 def match_context(pages: list[LTPage], cites: list[Citation]) -> None:
     cites.sort(key=lambda c: c.page)
@@ -338,11 +338,18 @@ def detect_bib_label_all(text: str, len_limit: int = sys.maxsize) -> list[str]:
 
 def detect_bibs(page: LTPage, split_LR: bool = False) -> list[Bibitem]:
     if split_LR:
-        raise NotImplementedError
+        # re-arrange textboxes
+        x0, _, x1, _ = page.bbox
+        lmb = 0.4
+        left_thresh = x0*lmb + x1*(1-lmb)
+        right_thresh = x0*(1-lmb) + x1*lmb
+        left_boxes = filter(lambda o: isinstance(o, LTTextBox) and o.bbox[2] < left_thresh, page)
+        right_boxes = filter(lambda o: isinstance(o, LTTextBox) and o.bbox[0] > right_thresh, page)
+        textboxes = chain(left_boxes, right_boxes)
+    else:
+        textboxes = filter(lambda o: isinstance(o, LTTextBox), page)
+    textboxes = cast(Iterator[LTTextBox], textboxes)
     
-    # TODO: smarter bibitem detection
-    textboxes = filter(lambda o: isinstance(o, LTTextBox), page)
-    textboxes = cast(list[LTTextBox], textboxes)
     bibs = map(lambda t: Bibitem(t, page.pageid-1, t.get_text()), textboxes)
     bibs = list(bibs)
     for bib in bibs:
@@ -373,7 +380,7 @@ def match_bibitem_candidate(cands: list[Bibitem], cite: str) -> Bibitem|None:
     logger.warning(f"Cannot find bibitem for {cite}")
     return None
 
-def match_bibitem(pages: list[LTPage], cites: list[Citation]) -> list[list[Bibitem]]:
+def match_bibitem(pages: list[LTPage], cites: list[Citation], split_LR: bool = False) -> list[list[Bibitem]]:
     """
     match destinations to bibitems
     @return detected bibitems on each page
@@ -382,7 +389,7 @@ def match_bibitem(pages: list[LTPage], cites: list[Citation]) -> list[list[Bibit
     cites.sort(key=lambda c: c.destination.page) # type: ignore
     cites_on_pages = {k: list(l) for k, l in groupby(cites, lambda c: c.destination.page)} # type: ignore
     for page in pages:
-        bibs = detect_bibs(page, False)
+        bibs = detect_bibs(page, split_LR)
         all_bibs[page.pageid-1] = bibs
         for cite in cites_on_pages.get(page.pageid-1, []):
             assert cite.destination
@@ -393,6 +400,23 @@ def match_bibitem(pages: list[LTPage], cites: list[Citation]) -> list[list[Bibit
             cite.target = cite.destination.target = target
     return all_bibs
 
+def judge_split_LR(pages: list[LTPage]) -> bool:
+    sieded_area = 0.
+    total_area = 0.
+    total_num = 0
+    for page in pages[: 3]:
+        x0, y0, x1, y1 = page.bbox
+        lmb = 0.4
+        left_thresh = x0*lmb + x1*(1-lmb)
+        right_thresh = x0*(1-lmb) + x1*lmb
+        textboxes = list(filter(lambda o: isinstance(o, LTTextBox), page))
+        sided_boxes = filter(lambda o: o.bbox[2] < left_thresh or o.bbox[0] > right_thresh, textboxes)
+        total_num += len(textboxes)
+        total_area += sum(area(o.bbox) for o in textboxes)
+        sieded_area += sum(area(o.bbox) for o in sided_boxes)
+    assert total_num > 10
+    return sieded_area / total_area > 0.5
+
 @logger.catch(reraise=True)
 def deal(fname: str) -> PDFResult:
     reader = PyPDF2.PdfReader(fname)
@@ -400,7 +424,11 @@ def deal(fname: str) -> PDFResult:
     cites = collect_cites(reader)
     
     pages = pdfminer_pages(fname) # use pdfminer for layout analysis
+    splited_layout = judge_split_LR(pages) # is the document splited into left and right parts?
+    # splited_layout = False
+    logger.success(f"Detected split_LR: {splited_layout}")
     match_context(pages, cites)
+    cites = [cite for cite in cites if cite.text and cite.context]
     
     dist_map: dict[str, Destination] = {
         dest.linkname: dest for dest in dests if dest.linkname
@@ -411,14 +439,15 @@ def deal(fname: str) -> PDFResult:
             cite.destination = dist_map[cite.linkname]
         else:
             logger.warning(f"Cannot find destination {cite.linkname} for {cite}")
+    cites = [cite for cite in cites if cite.destination]
     
-    bibs = match_bibitem(pages, cites)
+    bibs = match_bibitem(pages, cites, splited_layout)
     bibs = sum(bibs, [])
     
     return PDFResult(cites, dests, bibs)
 
 if __name__ == '__main__':
-    fname = "pdf/2201.02915.pdf"
+    fname = "pdf/2308.14870.pdf"
     if len(sys.argv) > 1:
         fname = sys.argv[1]
     result = deal(fname)
