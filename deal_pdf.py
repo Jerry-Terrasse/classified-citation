@@ -108,20 +108,83 @@ class Citation: # get from links
         
 
 @dataclass
+class ResultIntegrity:
+    ok: bool
+
+@dataclass
+class NumberedIntegrity(ResultIntegrity):
+    bib_labels: list[str] # detected labels, '1' '42' ...
+    num_range: tuple[int, int] # gussed number range, [start, end)
+    missing_bibs: list[int] # missing numbers which should be in range
+    unmatched_bibs: list[int] # bibs which are not matched to any citation
+    unexpected_labels: list[str] # labels which are not number
+    existing_labels: list[int] # fine labels
+
+@dataclass
+class UnnumberedIntegrity(ResultIntegrity):
+    pass # TODO
+
+@dataclass
 class PDFResult:
     cites: list[Citation]
     dests: list[Destination]
     bibs: list[Bibitem]
-    def summary(self) -> None:
+    def summary(self, need_sort: bool = True) -> None:
         valid = [cite for cite in self.cites if cite.target is not None]
+        if need_sort:
+            def key(cite: Citation) -> tuple[int, int|str]:
+                if cite.target and cite.target.label:
+                    if cite.target.label.isdigit():
+                        return (0, int(cite.target.label))
+                    return (1, cite.target.label)
+                return (2, 0)
+            valid.sort(key=key)
         logger.info(f"Valid citations: {len(valid)} / {len(self.cites)}")
         for cite in valid:
             assert cite.context
             assert cite.target
             context = " ".join(cite.context).replace("\n", " ")
-            context = f"{context[:50]}..." if len(context) > 50 else context
-            logger.info(f"{cite.text} -> {context} -> [{cite.target.label}]{cite.target.text}")
+            context = f"{context[:150]}..." if len(context) > 50 else context
+            target = cite.target.text.replace("\n", " ")
+            target = f"{target[:150]}..." if len(target) > 50 else target
+            logger.info(f"""
+label: {''.join(cite.text) if cite.text and cite.text!=[] else '<empty>'}
+context: {context}
+bibitem [{cite.target.label}]: {target}
+"""
+)
+    def integrity(self) -> ResultIntegrity:
+        # First, judge numbered or unnumbered
+        digit_cnt = 0
+        numbered = False
+        for bib in self.bibs[::-1]: # reference section is usually at the end
+            if bib.label and bib.label.isdigit():
+                digit_cnt += 1
+                if digit_cnt >= 3:
+                    numbered = True
+                    break
+        else:
+            return UnnumberedIntegrity(ok=False) # TODO
         
+        # numbered integrity
+        bib_labels = [bib.label for bib in self.bibs if bib.label]
+        unexpected_labels = [label for label in bib_labels if not label.isdigit()]
+        existing = set(int(label) for label in bib_labels if label.isdigit())
+        num_range = 1, max(existing)+1 # assume number start from 1
+        
+        missing_bibs = [i for i in range(*num_range) if i not in existing]
+        matched_bibs = set(int(cite.target.label) for cite in self.cites if cite.target and cite.target.label and cite.target.label.isdigit())
+        unmatched_bibs = [i for i in existing if i not in matched_bibs]
+        ok = len(missing_bibs) == 0 and len(unmatched_bibs) == 0
+        return NumberedIntegrity(
+            ok=ok,
+            bib_labels=bib_labels,
+            num_range=num_range,
+            missing_bibs=missing_bibs,
+            unmatched_bibs=unmatched_bibs,
+            unexpected_labels=unexpected_labels,
+            existing_labels=list(existing),
+        )
 
 def pdfminer_pages(fname: str, params: LAParams = None) -> list[LTPage]:
     resource_manager = PDFResourceManager()
@@ -261,11 +324,15 @@ def match_context(pages: list[LTPage], cites: list[Citation]) -> None:
         match_context_page(page, cites_on_pages.get(page.pageid-1, []))
 
 bib_label_pattern = re.compile(r"\[([\d\w]+)\]")
-def detect_bib_label(text: str) -> str|None:
+def detect_bib_label(text: str, len_limit: int = 20) -> str|None:
     match = bib_label_pattern.search(text)
-    if match and match.start() < 5: # label must be at the beginning
-        return match.group(1)
+    if match and match.start(1) < len_limit: # label must be at the beginning
+        return match.group(1).strip()
     return None
+
+def detect_bib_label_all(text: str, len_limit: int = sys.maxsize) -> list[str]:
+    matchs = bib_label_pattern.finditer(text, endpos=len_limit)
+    return [match.group(1).strip() for match in matchs]
 
 def detect_bibs(page: LTPage, split_LR: bool = False) -> list[Bibitem]:
     if split_LR:
@@ -277,6 +344,8 @@ def detect_bibs(page: LTPage, split_LR: bool = False) -> list[Bibitem]:
     bibs = map(lambda t: Bibitem(t, page.pageid-1, t.get_text()), textboxes)
     bibs = list(bibs)
     for bib in bibs:
+        if 'REFERENCES' in bib.text:
+            pass
         if label:=detect_bib_label(bib.text):
             bib.label = label
     return bibs
@@ -308,7 +377,7 @@ def match_bibitem(pages: list[LTPage], cites: list[Citation]) -> list[list[Bibit
     @return detected bibitems on each page
     """
     all_bibs: list[list[Bibitem]] = [[] for _ in pages]
-    cites.sort(key=lambda c: c.destination.page)
+    cites.sort(key=lambda c: c.destination.page) # type: ignore
     cites_on_pages = {k: list(l) for k, l in groupby(cites, lambda c: c.destination.page)} # type: ignore
     for page in pages:
         bibs = detect_bibs(page, False)
@@ -351,3 +420,11 @@ if __name__ == '__main__':
         fname = sys.argv[1]
     result = deal(fname)
     result.summary()
+    
+    integrity = result.integrity()
+    if isinstance(integrity, NumberedIntegrity):
+        for metric, value in integrity.__dict__.items():
+            logger.info(f"{metric}: {value}")
+        logger.success(f"Result: {len(integrity.existing_labels)} / {integrity.num_range[1]-integrity.num_range[0]}")
+    else:
+        logger.info(f"Unnumbered integrity: {integrity.ok}")
