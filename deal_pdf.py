@@ -118,7 +118,7 @@ class NumberedIntegrity(ResultIntegrity):
     missing_bibs: list[int] # missing numbers which should be in range
     unmatched_bibs: list[int] # bibs which are not matched to any citation
     unexpected_labels: list[str] # labels which are not number
-    existing_labels: list[int] # fine labels
+    ok_labels: list[int] # labels which exist and are matched to citations
 
 @dataclass
 class UnnumberedIntegrity(ResultIntegrity):
@@ -169,12 +169,12 @@ bibitem [{cite.target.label}]: {target}
         # numbered integrity
         bib_labels = [bib.label for bib in self.bibs if bib.label]
         unexpected_labels = [label for label in bib_labels if not label.isdigit()]
-        existing = set(int(label) for label in bib_labels if label.isdigit())
-        num_range = 1, max(existing)+1 # assume number start from 1
+        existing_bibs = set(int(label) for label in bib_labels if label.isdigit())
+        num_range = 1, max(existing_bibs)+1 # assume number start from 1
         
-        missing_bibs = [i for i in range(*num_range) if i not in existing]
+        missing_bibs = [i for i in range(*num_range) if i not in existing_bibs]
         matched_bibs = set(int(cite.target.label) for cite in self.cites if cite.target and cite.target.label and cite.target.label.isdigit())
-        unmatched_bibs = [i for i in existing if i not in matched_bibs]
+        unmatched_bibs = [i for i in existing_bibs if i not in matched_bibs]
         ok = len(missing_bibs) == 0 and len(unmatched_bibs) == 0
         return NumberedIntegrity(
             ok=ok,
@@ -183,7 +183,7 @@ bibitem [{cite.target.label}]: {target}
             missing_bibs=missing_bibs,
             unmatched_bibs=unmatched_bibs,
             unexpected_labels=unexpected_labels,
-            existing_labels=list(existing),
+            ok_labels=list(matched_bibs),
         )
 
 def pdfminer_pages(fname: str, params: LAParams = None) -> list[LTPage]:
@@ -292,13 +292,15 @@ def walk_context(layout: LTComponent, cite: Citation, depth: int = 0) -> None:
         if not contains(layout.bbox, cite.rect):
             return
         match_idx = -1 # index of matched line
-        assert cite.context is None
+        if cite.context is not None:
+            logger.warning(f"Skippig overlaped TextBox({layout}) on {cite}")
+            return
         for idx, line in enumerate(layout):
             walk_context(line, cite, depth + 1)
             if match_idx < 0 and cite.context is not None:
                 match_idx = idx
         if match_idx < 0:
-            logger.warning(f"Geometry Error")
+            logger.warning(f"Geometry Error: no valid line for {cite} even though TextBox({layout}) contains it")
             return
         cite.context = cast(list[str], cite.context)
         for i in range(match_idx-1, match_idx+2): # near 2 lines
@@ -391,6 +393,7 @@ def match_bibitem(pages: list[LTPage], cites: list[Citation]) -> list[list[Bibit
             cite.target = cite.destination.target = target
     return all_bibs
 
+@logger.catch(reraise=True)
 def deal(fname: str) -> PDFResult:
     reader = PyPDF2.PdfReader(fname)
     dests = collect_dests(reader)
@@ -425,6 +428,6 @@ if __name__ == '__main__':
     if isinstance(integrity, NumberedIntegrity):
         for metric, value in integrity.__dict__.items():
             logger.info(f"{metric}: {value}")
-        logger.success(f"Result: {len(integrity.existing_labels)} / {integrity.num_range[1]-integrity.num_range[0]}")
+        logger.success(f"Result: {len(integrity.ok_labels)} / {integrity.num_range[1]-integrity.num_range[0]}")
     else:
         logger.info(f"Unnumbered integrity: {integrity.ok}")
