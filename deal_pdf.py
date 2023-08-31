@@ -32,7 +32,7 @@ from utils import Rect, Point, contains, overlap, area
 
 from loguru import logger
 
-from typing import cast, Iterator
+from typing import cast, Iterator, Optional
 
 
 class Bibitem:
@@ -129,8 +129,9 @@ class PDFResult:
     cites: list[Citation]
     dests: list[Destination]
     bibs: list[Bibitem]
+    _valids: Optional[list[Citation]] = None
     def summary(self, need_sort: bool = True) -> None:
-        valid = [cite for cite in self.cites if cite.target is not None]
+        valids = self.valids
         if need_sort:
             def key(cite: Citation) -> tuple[int, int|str]:
                 if cite.target and cite.target.label:
@@ -138,9 +139,9 @@ class PDFResult:
                         return (0, int(cite.target.label))
                     return (1, cite.target.label)
                 return (2, 0)
-            valid.sort(key=key)
-        logger.info(f"Valid citations: {len(valid)} / {len(self.cites)}")
-        for cite in valid:
+            valids.sort(key=key)
+        logger.info(f"Valid citations: {len(valids)} / {len(self.cites)}")
+        for cite in valids:
             assert cite.context
             assert cite.target
             context = " ".join(cite.context).replace("\n", " ")
@@ -153,6 +154,11 @@ context: {context}
 bibitem [{cite.target.label}]: {target}
 """
 )
+    @property
+    def valids(self) -> list[Citation]:
+        if self._valids is None:
+            self._valids = [cite for cite in self.cites if cite.target is not None]
+        return self._valids
     def integrity(self) -> ResultIntegrity:
         # First, judge numbered or unnumbered
         digit_cnt = 0
@@ -353,8 +359,6 @@ def detect_bibs(page: LTPage, split_LR: bool = False) -> list[Bibitem]:
     bibs = map(lambda t: Bibitem(t, page.pageid-1, t.get_text()), textboxes)
     bibs = list(bibs)
     for bib in bibs:
-        if 'REFERENCES' in bib.text:
-            pass
         if label:=detect_bib_label(bib.text):
             bib.label = label
     return bibs
@@ -447,7 +451,7 @@ def deal(fname: str) -> PDFResult:
     return PDFResult(cites, dests, bibs)
 
 if __name__ == '__main__':
-    fname = "pdf/2308.14870.pdf"
+    fname = "pdf/2201.02915.pdf"
     if len(sys.argv) > 1:
         fname = sys.argv[1]
     result = deal(fname)
