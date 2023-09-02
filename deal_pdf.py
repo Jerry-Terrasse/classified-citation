@@ -23,10 +23,9 @@ from pdfminer.layout import (
     LTTextLine,
     LTChar,
     LTAnno,
+    LTTextContainer,
 )
-from pdfminer.converter import PDFPageAggregator
-from pdfminer.pdfpage import PDFPage
-from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
+from pdfminer.high_level import extract_pages, extract_text
 
 from utils import Rect, Point, contains, overlap, area
 
@@ -42,11 +41,13 @@ class Bibitem:
         page: int,
         text: str,
         label: str = None,
+        # side: int = None,
     ) -> None:
         self.obj = obj # the text box in layout tree
         self.page = page # the page index, start from 0
         self.text = text # the text of the bibitem
         self.label = label # "[xx]" if exists, or None
+        # self.side = side # 0: left, 1: right, -1: not sided, None: unknown
     def __repr__(self) -> str:
         return f"<Bibitem: {self.text} on page {self.page} with label {self.label}>"
 
@@ -192,23 +193,6 @@ bibitem [{cite.target.label}]: {target}
             ok_labels=list(matched_bibs),
         )
 
-def pdfminer_pages(fname: str, params: LAParams = None) -> list[LTPage]:
-    resource_manager = PDFResourceManager()
-    laparams = LAParams() if params is None else params
-    device = PDFPageAggregator(resource_manager, laparams=laparams)
-    interpreter = PDFPageInterpreter(resource_manager, device)
-    
-    pages: list[LTPage] = []
-    with open(fname, 'rb') as file:
-        for page in PDFPage.get_pages(file):
-            interpreter.process_page(page)
-            # 获得页面的布局对象
-            layout = device.get_result()
-            pages.append(layout)
-
-    device.close()
-    return pages
-
 def collect_dests(reader: PdfReader) -> list[Destination]:
     """
     collect named destinations
@@ -331,7 +315,7 @@ def match_context(pages: list[LTPage], cites: list[Citation]) -> None:
     for page in pages:
         match_context_page(page, cites_on_pages.get(page.pageid-1, []))
 
-bib_label_pattern = re.compile(r"\[([\d\w]+)\]")
+bib_label_pattern = re.compile(r"\[([\d\w\s]+)\]")
 def detect_bib_label(text: str, len_limit: int = 20) -> str|None:
     match = bib_label_pattern.search(text)
     if match and match.start(1) < len_limit: # label must be at the beginning
@@ -421,14 +405,31 @@ def judge_split_LR(pages: list[LTPage]) -> bool:
     assert total_num > 10
     return sieded_area / total_area > 0.5
 
+# def collect_bibs(pages: list[LTPage], split_LR: bool = False) -> list[list[Bibitem]]:
+#     """
+#     collect bibitems from pages
+#       step 1: re-arrange textboxes according to split_LR
+#       step 2: try to find out REFERENCES section
+#       step 3: judge whether the bibitem is numbered
+#       step 4: re-group textlines
+#       step 5: collect bibitems
+#     @return detected bibitems on each page
+#     """
+#     all_bibs: list[list[Bibitem]] = [[] for _ in pages]
+#     for page in pages:
+#         bibs = detect_bibs(page, split_LR)
+#         all_bibs[page.pageid-1] = bibs
+#     return all_bibs
+
 @logger.catch(reraise=True)
 def deal(fname: str) -> PDFResult:
     reader = PyPDF2.PdfReader(fname)
     dests = collect_dests(reader)
     cites = collect_cites(reader)
     
-    pages = pdfminer_pages(fname) # use pdfminer for layout analysis
+    pages = list(extract_pages(fname)) # use pdfminer for layout analysis
     splited_layout = judge_split_LR(pages) # is the document splited into left and right parts?
+    # bibs = collect_bibs(pages, splited_layout)
     # splited_layout = False
     logger.success(f"Detected split_LR: {splited_layout}")
     match_context(pages, cites)
