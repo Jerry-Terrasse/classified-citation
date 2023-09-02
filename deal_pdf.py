@@ -1,6 +1,6 @@
 import sys
 from dataclasses import dataclass
-from itertools import groupby, chain
+from itertools import groupby, chain, islice
 import re
 from Levenshtein import ratio
 
@@ -41,13 +41,13 @@ class Bibitem:
         page: int,
         text: str,
         label: str = None,
-        # side: int = None,
+        side: int = None,
     ) -> None:
         self.obj = obj # the text box in layout tree
         self.page = page # the page index, start from 0
         self.text = text # the text of the bibitem
         self.label = label # "[xx]" if exists, or None
-        # self.side = side # 0: left, 1: right, -1: not sided, None: unknown
+        self.side = side # 0: left, 1: right, -1: not sided, None: unknown
     def __repr__(self) -> str:
         return f"<Bibitem: {self.text} on page {self.page} with label {self.label}>"
 
@@ -326,18 +326,21 @@ def detect_bib_label_all(text: str, len_limit: int = sys.maxsize) -> list[str]:
     matchs = bib_label_pattern.finditer(text, endpos=len_limit)
     return [match.group(1).strip() for match in matchs]
 
+def split_page(page: LTPage) -> Iterator[LTComponent]:
+    """
+    re-arrange items on the page, left part first, then right part
+    """
+    x0, _, x1, _ = page.bbox
+    lmb = 0.4
+    left_thresh = x0*lmb + x1*(1-lmb)
+    right_thresh = x0*(1-lmb) + x1*lmb
+    left_boxes = filter(lambda o: o.bbox[2] < left_thresh, page)
+    right_boxes = filter(lambda o: o.bbox[0] > right_thresh, page)
+    return chain(left_boxes, right_boxes)
+
 def detect_bibs(page: LTPage, split_LR: bool = False) -> list[Bibitem]:
-    if split_LR:
-        # re-arrange textboxes
-        x0, _, x1, _ = page.bbox
-        lmb = 0.4
-        left_thresh = x0*lmb + x1*(1-lmb)
-        right_thresh = x0*(1-lmb) + x1*lmb
-        left_boxes = filter(lambda o: isinstance(o, LTTextBox) and o.bbox[2] < left_thresh, page)
-        right_boxes = filter(lambda o: isinstance(o, LTTextBox) and o.bbox[0] > right_thresh, page)
-        textboxes = chain(left_boxes, right_boxes)
-    else:
-        textboxes = filter(lambda o: isinstance(o, LTTextBox), page)
+    items = split_page(page) if split_LR else page
+    textboxes = filter(lambda o: isinstance(o, LTTextBox), items)
     textboxes = cast(Iterator[LTTextBox], textboxes)
     
     bibs = map(lambda t: Bibitem(t, page.pageid-1, t.get_text()), textboxes)
@@ -405,21 +408,73 @@ def judge_split_LR(pages: list[LTPage]) -> bool:
     assert total_num > 10
     return sieded_area / total_area > 0.5
 
-# def collect_bibs(pages: list[LTPage], split_LR: bool = False) -> list[list[Bibitem]]:
-#     """
-#     collect bibitems from pages
-#       step 1: re-arrange textboxes according to split_LR
-#       step 2: try to find out REFERENCES section
-#       step 3: judge whether the bibitem is numbered
-#       step 4: re-group textlines
-#       step 5: collect bibitems
-#     @return detected bibitems on each page
-#     """
-#     all_bibs: list[list[Bibitem]] = [[] for _ in pages]
-#     for page in pages:
-#         bibs = detect_bibs(page, split_LR)
-#         all_bibs[page.pageid-1] = bibs
-#     return all_bibs
+def collect_bibs(pages: list[LTPage], split_LR: bool = False) -> list[list[Bibitem]]:
+    """
+    collect bibitems from pages
+      step 1: re-arrange textboxes according to split_LR
+      step 2: try to find out REFERENCES section
+      step 3: judge whether the bibitem is numbered
+      step 4: re-group textlines
+      step 5: collect bibitems
+    @return detected bibitems on each page
+    """
+    all_bibs: list[list[Bibitem]] = [[] for _ in pages]
+    items_list = [split_page(page) if split_LR else page for page in pages]
+    textboxes_list = [filter(lambda o: isinstance(o, LTTextBox), items) for items in items_list]
+    textboxes_list = cast(list[Iterator[LTTextBox]], textboxes_list)
+    bib_boxes_list = []
+    ref_title_id = -1
+    for idx, items in enumerate(textboxes_list):
+        if ref_title_id != -1: # found the ref in previous page
+            # TODO: judge section end?
+            bib_boxes_list.append(items)
+            continue
+        
+        # step 2
+        # lines = chain.from_iterable(items)
+        # lines_contain_ref = filter(lambda l: "reference" in l.get_text().lower(), lines)
+        # # candidates = []
+        # for line in lines_contain_ref:
+        #     # judge whether the line is the reference section title
+        #     text = line.get_text().lower()
+        #     if len(text) > 10: # title should be short
+        #         continue
+        #     # TODO: maybe other rules?
+        #     break
+        # else:
+        #     # not on this page
+        #     lines_list.append([])
+        #     continue
+        # # found the reference section title
+        # ref_title_id = id(line)
+        # for i, line in enumerate(lines):
+        #     if id(line) == ref_title_id:
+        #         lines_list.append(islice(lines, i+1, None))
+        #         break
+        # else:
+        #     raise RuntimeError("found line disappear")
+        for i, textbox in enumerate(items):
+            for line in textbox:
+                text = line.get_text().lower()
+                if len(text) < 10 and "reference" in text:
+                    ref_title_id = id(line)
+                    break
+            else:
+                continue
+            bib_boxes_list.append(islice(textbox, i, None))
+        
+    assert len(bib_boxes_list) == len(pages)
+    
+    # step 3
+    samples = islice(chain.from_iterable(bib_boxes_list), 0, 20) # the first 20 textboxes 
+    samples = islice(chain.from_iterable(samples), 0, 20) # the first 20 lines
+    numbered = sum(map(lambda o: bib_label_pattern.match(o.get_text()) is not None, samples)) > 5
+    logger.success(f"Detected numbered: {numbered}")
+    
+    # step 4
+    if not numbered:
+        pass # TODO
+    return all_bibs
 
 @logger.catch(reraise=True)
 def deal(fname: str) -> PDFResult:
@@ -429,7 +484,7 @@ def deal(fname: str) -> PDFResult:
     
     pages = list(extract_pages(fname)) # use pdfminer for layout analysis
     splited_layout = judge_split_LR(pages) # is the document splited into left and right parts?
-    # bibs = collect_bibs(pages, splited_layout)
+    bibs = collect_bibs(pages, splited_layout)
     # splited_layout = False
     logger.success(f"Detected split_LR: {splited_layout}")
     match_context(pages, cites)
