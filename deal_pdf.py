@@ -11,7 +11,9 @@ from PyPDF2.generic import (
     DictionaryObject,
     IndirectObject,
     TextStringObject,
+    ByteStringObject,
     ArrayObject,
+    Fit,
 )
 
 from pdfminer.layout import (
@@ -31,7 +33,7 @@ from utils import Rect, Point, contains, overlap, area
 
 from loguru import logger
 
-from typing import cast, Iterator, Optional
+from typing import cast, Iterator, Optional, Iterable
 
 
 class Bibitem:
@@ -41,13 +43,11 @@ class Bibitem:
         page: int,
         text: str,
         label: str = None,
-        side: int = None,
     ) -> None:
         self.obj = obj # the text box in layout tree
         self.page = page # the page index, start from 0
         self.text = text # the text of the bibitem
         self.label = label # "[xx]" if exists, or None
-        self.side = side # 0: left, 1: right, -1: not sided, None: unknown
     def __repr__(self) -> str:
         return f"<Bibitem: {self.text} on page {self.page} with label {self.label}>"
 
@@ -237,14 +237,27 @@ def collect_cites(reader: PdfReader) -> list[Citation]:
             rect_obj = obj['/Rect']
             assert isinstance(rect_obj, ArrayObject)
             rect: Rect = tuple(rect_obj[i].as_numeric() for i in range(4))
-            if '/Dest' in obj: # Named Destination
-                linkname_obj = obj['/Dest']
-                assert isinstance(linkname_obj, TextStringObject)
-                res.append(Citation(
-                    page_idx,
-                    rect,
-                    linkname=str(linkname_obj),
-                ))
+            if '/Dest' in obj:
+                dest_obj = obj['/Dest']
+                if isinstance(dest_obj, TextStringObject|ByteStringObject): # Named Destination
+                    linkname = str(dest_obj) if isinstance(dest_obj, TextStringObject) else dest_obj.original_bytes.decode()
+                    res.append(Citation(
+                        page_idx,
+                        rect,
+                        linkname=linkname,
+                    ))
+                elif isinstance(dest_obj, ArrayObject): # Explicit Destination
+                    target_page, fit, *args = dest_obj
+                    dest_obj = PDFDestination('', target_page, Fit(fit, tuple(args)))
+                    res.append(Citation(
+                        page_idx,
+                        rect,
+                        destination=Destination(
+                            dest_obj,
+                            reader.get_destination_page_number(dest_obj),
+                        ),
+                    ))
+                    # page, 
             elif '/A' in obj: # Action
                 action_obj = obj['/A']
                 assert isinstance(action_obj, DictionaryObject)
@@ -371,25 +384,22 @@ def match_bibitem_candidate(cands: list[Bibitem], cite: str) -> Bibitem|None:
     logger.warning(f"Cannot find bibitem for {cite}")
     return None
 
-def match_bibitem(pages: list[LTPage], cites: list[Citation], split_LR: bool = False) -> list[list[Bibitem]]:
+def match_bibitem(bibs: list[list[Bibitem]], cites: list[Citation], split_LR: bool = False):
     """
     match destinations to bibitems
-    @return detected bibitems on each page
     """
-    all_bibs: list[list[Bibitem]] = [[] for _ in pages]
+    all_bibs: list[list[Bibitem]] = [[] for _ in bibs]
     cites.sort(key=lambda c: c.destination.page) # type: ignore
     cites_on_pages = {k: list(l) for k, l in groupby(cites, lambda c: c.destination.page)} # type: ignore
-    for page in pages:
-        bibs = detect_bibs(page, split_LR)
-        all_bibs[page.pageid-1] = bibs
-        for cite in cites_on_pages.get(page.pageid-1, []):
+    for idx, page_bibs in enumerate(bibs):
+        for cite in cites_on_pages.get(idx, []):
             assert cite.destination
             assert cite.text is not None
             cand_box = cite.destination.candidate_box()
-            cite.destination.candidates = [bib for bib in bibs if overlap(cand_box, bib.obj.bbox) > 20]
+            cite.destination.candidates = [bib for bib in page_bibs if overlap(cand_box, bib.obj.bbox) > 20]
             target = match_bibitem_candidate(cite.destination.candidates, ''.join(cite.text))
             cite.target = cite.destination.target = target
-    return all_bibs
+    return
 
 def judge_split_LR(pages: list[LTPage]) -> bool:
     sieded_area = 0.
@@ -408,6 +418,11 @@ def judge_split_LR(pages: list[LTPage]) -> bool:
     assert total_num > 10
     return sieded_area / total_area > 0.5
 
+def make_textbox(lines: Iterable[LTTextLine]) -> LTTextBox:
+    box = LTTextBox()
+    box.extend(lines)
+    return box
+
 def collect_bibs(pages: list[LTPage], split_LR: bool = False) -> list[list[Bibitem]]:
     """
     collect bibitems from pages
@@ -422,12 +437,12 @@ def collect_bibs(pages: list[LTPage], split_LR: bool = False) -> list[list[Bibit
     items_list = [split_page(page) if split_LR else page for page in pages]
     textboxes_list = [filter(lambda o: isinstance(o, LTTextBox), items) for items in items_list]
     textboxes_list = cast(list[Iterator[LTTextBox]], textboxes_list)
-    bib_boxes_list = []
+    bib_boxes_list: list[Iterable[LTTextBox]] = []
     ref_title_id = -1
     for idx, items in enumerate(textboxes_list):
         if ref_title_id != -1: # found the ref in previous page
             # TODO: judge section end?
-            bib_boxes_list.append(items)
+            bib_boxes_list.append(list(items))
             continue
         
         # step 2
@@ -453,17 +468,27 @@ def collect_bibs(pages: list[LTPage], split_LR: bool = False) -> list[list[Bibit
         #         break
         # else:
         #     raise RuntimeError("found line disappear")
+        items = list(items)
         for i, textbox in enumerate(items):
             for line in textbox:
                 text = line.get_text().lower()
-                if len(text) < 10 and "reference" in text:
+                # logger.debug(f"Found line: {text}")
+                if len(text) < 15 and "reference" in text:
+                    logger.success(f"Found reference title: {line}")
                     ref_title_id = id(line)
                     break
             else:
                 continue
-            bib_boxes_list.append(islice(textbox, i, None))
+            bib_boxes_list.append(items[i:])
+            break
+        else:
+            bib_boxes_list.append([])
         
     assert len(bib_boxes_list) == len(pages)
+    if ref_title_id == -1:
+        logger.warning(f"Cannot find reference section")
+        # raise RuntimeError("Cannot find reference section")
+        return list(map(detect_bibs, pages, [split_LR]*len(pages)))
     
     # step 3
     samples = islice(chain.from_iterable(bib_boxes_list), 0, 20) # the first 20 textboxes 
@@ -471,9 +496,34 @@ def collect_bibs(pages: list[LTPage], split_LR: bool = False) -> list[list[Bibit
     numbered = sum(map(lambda o: bib_label_pattern.match(o.get_text()) is not None, samples)) > 5
     logger.success(f"Detected numbered: {numbered}")
     
-    # step 4
     if not numbered:
-        pass # TODO
+        # not to re-group, just use textboxes
+        # step 5
+        for page in pages:
+            idx = page.pageid - 1
+            all_bibs[idx] = [Bibitem(t, idx, t.get_text()) for t in textboxes_list[idx]]
+        return all_bibs
+    
+    # step 4
+    boxes_list: list[Iterable[LTTextBox]] = []
+    for idx, boxes in enumerate(bib_boxes_list):
+        groups: list[list[LTTextLine]] = []
+        lines = chain.from_iterable(boxes)
+        for line in lines:
+            logger.debug(f"Found line: {line.get_text()}")
+            if (m := bib_label_pattern.search(line.get_text())) and m.start(1) < 5:
+                groups.append([line])
+            elif groups:
+                groups[-1].append(line)
+        boxes = map(make_textbox, groups)
+        boxes_list.append(boxes)
+    
+    # step 5
+    for idx, boxes in enumerate(boxes_list):
+        all_bibs[idx] = [Bibitem(t, idx, t.get_text()) for t in boxes]
+        for bib in all_bibs[idx]:
+            if label:=detect_bib_label(bib.text):
+                bib.label = label
     return all_bibs
 
 @logger.catch(reraise=True)
@@ -494,20 +544,21 @@ def deal(fname: str) -> PDFResult:
         dest.linkname: dest for dest in dests if dest.linkname
     }
     for cite in cites:
-        assert cite.linkname
+        if cite.destination: # Explicit Destination
+            continue
         if cite.linkname in dist_map:
             cite.destination = dist_map[cite.linkname]
         else:
             logger.warning(f"Cannot find destination {cite.linkname} for {cite}")
     cites = [cite for cite in cites if cite.destination]
     
-    bibs = match_bibitem(pages, cites, splited_layout)
-    bibs = sum(bibs, [])
+    match_bibitem(bibs, cites, splited_layout)
     
+    bibs = list(chain.from_iterable(bibs))
     return PDFResult(cites, dests, bibs)
 
 if __name__ == '__main__':
-    fname = "pdf/2201.02915.pdf"
+    fname = "pdf/2307.00190.pdf"
     if len(sys.argv) > 1:
         fname = sys.argv[1]
     result = deal(fname)
@@ -519,4 +570,4 @@ if __name__ == '__main__':
             logger.info(f"{metric}: {value}")
         logger.success(f"Result: {len(integrity.ok_labels)} / {integrity.num_range[1]-integrity.num_range[0]}")
     else:
-        logger.info(f"Unnumbered integrity: {integrity.ok}")
+        logger.warning(f"Unnumbered integrity: {integrity.ok}")
