@@ -77,7 +77,7 @@ class Destination:
     def candidate_box(self) -> Rect:
         assert self.pos is not None # maybe the whole page?
         if isinstance(self.pos, tuple):
-            return (self.pos[0], self.pos[1] - 40, self.pos[0] + 20, self.pos[1] + 10) # TODO: not sure
+            return (self.pos[0], self.pos[1] - 40, self.pos[0] + 50, self.pos[1] + 10) # TODO: not sure
         else:
             return (0, self.pos - 40, 500, self.pos + 10)
 
@@ -123,6 +123,7 @@ class NumberedIntegrity(ResultIntegrity):
 
 @dataclass
 class UnnumberedIntegrity(ResultIntegrity):
+    ok_labels: list[str] # labels which exist and are matched to bibitems
     pass # TODO
 
 @dataclass
@@ -171,7 +172,12 @@ bibitem [{cite.target.label}]: {target}
                     numbered = True
                     break
         else:
-            return UnnumberedIntegrity(ok=False) # TODO
+            ok_labels = [''.join(cite.text) for cite in self.valids if cite.text]
+            ok_labels = list(set(ok_labels))
+            return UnnumberedIntegrity(
+                ok=False,
+                ok_labels=ok_labels
+            ) # TODO
         
         # numbered integrity
         bib_labels = [bib.label for bib in self.bibs if bib.label]
@@ -289,8 +295,10 @@ def walk_context(layout: LTComponent, cite: Citation, depth: int = 0) -> None:
     elif isinstance(layout, LTTextLine):
         if not contains(layout.bbox, cite.rect, 0.01):
             return
-        cite.text = [] # prepare for collecting text
-        cite.context = [] # prepare for collecting context
+        if cite.text is None:
+            cite.text = [] # prepare for collecting text
+        if cite.context is None:
+            cite.context = [] # prepare for collecting context
     elif isinstance(layout, LTTextBox):
         if not contains(layout.bbox, cite.rect):
             return
@@ -320,6 +328,8 @@ def walk_context(layout: LTComponent, cite: Citation, depth: int = 0) -> None:
 def match_context_page(page: LTPage, cites: list[Citation]) -> None:
     for cite in cites: # maybe slow
         walk_context(page, cite)
+        if cite.text == ['2', '0', '1', '2']:
+            pass
         logger.debug(f"Citation: {cite.text} on page {cite.page} at {cite.rect} with context {cite.context}")
 
 def match_context(pages: list[LTPage], cites: list[Citation]) -> None:
@@ -363,8 +373,11 @@ def detect_bibs(page: LTPage, split_LR: bool = False) -> list[Bibitem]:
             bib.label = label
     return bibs
 
+peple_pattern = re.compile(r"[A-Z][a-z]+")
+and_pattern = re.compile(r"([A-Z][a-z]+)and([A-Z][a-z]+)") # almost nobody use "and" to end his name
+etal_pattern = re.compile(r"([A-Z][a-z]+)etal\.?")
 def match_bibitem_candidate(cands: list[Bibitem], cite: str) -> Bibitem|None:
-    cite.strip().replace('[', '').replace(']', '')
+    cite = cite.replace('[', '').replace(']', '').strip()
     if cite == "":
         logger.warning(f"Empty citation text")
         return None
@@ -375,11 +388,27 @@ def match_bibitem_candidate(cands: list[Bibitem], cite: str) -> Bibitem|None:
         bib.label = bib.label.strip()
         if bib.label == cite:
             return bib
+    
     # Then, try to match the text
-    linkname = cite.lower() # TODO
+    # try peple name
+    # 1. Alice
+    # 2. Alice and Bob
+    # 3. Alice et al.
+    if (m:=and_pattern.search(cite)):
+        peoples = [m.group(1), m.group(2)]
+    elif (m:=etal_pattern.search(cite)):
+        peoples = [m.group(1)]
+    else:
+        peoples = peple_pattern.findall(cite)
+    if peoples == []:
+        logger.warning(f"Cannot find people name in {cite}")
+        return None
+    # if len(label) < 4:
+    #     logger.debug(f"Ignore too short alphabet citation text {cite}")
+    #     return None
     for bib in cands:
-        for word in bib.text.split(maxsplit=5)[:5]:
-            if ratio(word.lower(), linkname) > 0.8:
+        for people in peoples:
+            if people in ''.join(bib.text.split(maxsplit=5)[:5]):
                 return bib
     logger.warning(f"Cannot find bibitem for {cite}")
     return None
@@ -569,5 +598,6 @@ if __name__ == '__main__':
         for metric, value in integrity.__dict__.items():
             logger.info(f"{metric}: {value}")
         logger.success(f"Result: {len(integrity.ok_labels)} / {integrity.num_range[1]-integrity.num_range[0]}")
-    else:
+    elif isinstance(integrity, UnnumberedIntegrity):
         logger.warning(f"Unnumbered integrity: {integrity.ok}")
+        logger.success(f"ok_labels {len(integrity.ok_labels)} in total: {integrity.ok_labels}")
