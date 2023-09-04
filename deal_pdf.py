@@ -282,7 +282,7 @@ def walk_context(layout: LTComponent, cite: Citation, depth: int = 0) -> None:
     and then every Text & Char **overlaps** with the citation is collected as "text"
     """
     if isinstance(layout, LTChar):
-        if contains(layout.bbox, cite.rect, 0.1):
+        if overlap(layout.bbox, cite.rect) > area(layout.bbox) * 0.5:
             assert cite.text is not None
             cite.text.append(layout.get_text())
         return
@@ -384,11 +384,10 @@ def match_bibitem_candidate(cands: list[Bibitem], cite: str) -> Bibitem|None:
     logger.warning(f"Cannot find bibitem for {cite}")
     return None
 
-def match_bibitem(bibs: list[list[Bibitem]], cites: list[Citation], split_LR: bool = False):
+def match_bibitem(bibs: list[list[Bibitem]], cites: list[Citation]):
     """
     match destinations to bibitems
     """
-    all_bibs: list[list[Bibitem]] = [[] for _ in bibs]
     cites.sort(key=lambda c: c.destination.page) # type: ignore
     cites_on_pages = {k: list(l) for k, l in groupby(cites, lambda c: c.destination.page)} # type: ignore
     for idx, page_bibs in enumerate(bibs):
@@ -533,6 +532,7 @@ def deal(fname: str) -> PDFResult:
     cites = collect_cites(reader)
     
     pages = list(extract_pages(fname)) # use pdfminer for layout analysis
+    # logger.debug(extract_text(fname))
     splited_layout = judge_split_LR(pages) # is the document splited into left and right parts?
     bibs = collect_bibs(pages, splited_layout)
     # splited_layout = False
@@ -552,13 +552,13 @@ def deal(fname: str) -> PDFResult:
             logger.warning(f"Cannot find destination {cite.linkname} for {cite}")
     cites = [cite for cite in cites if cite.destination]
     
-    match_bibitem(bibs, cites, splited_layout)
+    match_bibitem(bibs, cites)
     
     bibs = list(chain.from_iterable(bibs))
     return PDFResult(cites, dests, bibs)
 
 if __name__ == '__main__':
-    fname = "pdf/2307.00190.pdf"
+    fname = "pdf/2109.09774.pdf"
     if len(sys.argv) > 1:
         fname = sys.argv[1]
     result = deal(fname)
