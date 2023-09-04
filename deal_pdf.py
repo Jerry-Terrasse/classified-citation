@@ -376,7 +376,7 @@ def match_bibitem_candidate(cands: list[Bibitem], cite: str) -> Bibitem|None:
         if bib.label == cite:
             return bib
     # Then, try to match the text
-    linkname = cite.lower()
+    linkname = cite.lower() # TODO
     for bib in cands:
         for word in bib.text.split(maxsplit=5)[:5]:
             if ratio(word.lower(), linkname) > 0.8:
@@ -500,7 +500,7 @@ def collect_bibs(pages: list[LTPage], split_LR: bool = False) -> list[list[Bibit
         # step 5
         for page in pages:
             idx = page.pageid - 1
-            all_bibs[idx] = [Bibitem(t, idx, t.get_text()) for t in textboxes_list[idx]]
+            all_bibs[idx] = [Bibitem(t, idx, t.get_text()) for t in bib_boxes_list[idx]]
         return all_bibs
     
     # step 4
