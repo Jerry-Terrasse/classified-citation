@@ -176,3 +176,7 @@ temp/
 
 # Backup
 *.bak
+
+# Output
+visualize.html
+database.db

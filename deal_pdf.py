@@ -328,8 +328,6 @@ def walk_context(layout: LTComponent, cite: Citation, depth: int = 0) -> None:
 def match_context_page(page: LTPage, cites: list[Citation]) -> None:
     for cite in cites: # maybe slow
         walk_context(page, cite)
-        if cite.text == ['2', '0', '1', '2']:
-            pass
         logger.debug(f"Citation: {cite.text} on page {cite.page} at {cite.rect} with context {cite.context}")
 
 def match_context(pages: list[LTPage], cites: list[Citation]) -> None:

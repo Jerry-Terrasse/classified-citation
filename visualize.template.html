@@ -1,0 +1,57 @@
+<html>
+
+<head>
+  <script src="https://gw.alipayobjects.com/os/lib/antv/g6/4.3.11/dist/g6.min.js"></script>
+  <style>
+    .g6-tooltip {
+      border: 1px solid #e2e2e2;
+      border-radius: 4px;
+      width: 30em;
+      font-size: 12px;
+      color: #545454;
+      background-color: rgba(255, 255, 255, 0.9);
+      padding: 10px 8px;
+      box-shadow: rgb(174, 174, 174) 0px 0px 10px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="mountNode"></div>
+  <script>
+    const data = "PLACEHOLDER";
+    const grid = new G6.Grid();
+    const graph = new G6.Graph({
+      container: 'mountNode', // String | HTMLElement，必须，在 Step 1 中创建的容器 id 或容器本身
+      width: 1800, // Number，必须，图的宽度
+      height: 1000, // Number，必须，图的高度
+      plugins: [grid],
+      layout: {
+        type: 'force',
+        linkDistance: 100,
+        preventOverlap: true,
+        nodeStrength: -30,
+        edgeStrength: 0.1
+      },
+      modes: {
+        default: [
+          'drag-node', 'drag-canvas', 'zoom-canvas',
+          {
+            type: 'tooltip', // 提示框
+            formatText(model) {
+              // 提示框文本内容
+              const text = '<h3>' + model.title + '</h3><br/> Authors: ' + model.author;
+              return text;
+            },
+          },
+        ],
+      },
+      animate: true
+    });
+    graph.data(data); // 读取 Step 2 中的数据源到图上
+    graph.render(); // 渲染图
+
+  </script>
+</body>
+
+</html>
