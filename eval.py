@@ -21,6 +21,7 @@ testset2 = {
 
 if __name__ == '__main__':
     accs1 = []
+    logger.info("Testing numbered papers")
     for fname, ans in testset1.items():
         logger.info(f"Testing {fname}")
         result = deal(f"pdf/{fname}")
@@ -30,14 +31,15 @@ if __name__ == '__main__':
         accs1.append(len(integrity.ok_labels) / ans)
     logger.success(f"Numbered Average accuracy: {sum(accs1) / len(accs1):.3f}")
     
-    # accs2 = []
-    # for fname, ans in testset2.items():
-    #     logger.info(f"Testing {fname}")
-    #     result = deal(f"pdf/{fname}")
-    #     integrity = result.integrity()
-    #     assert isinstance(integrity, UnnumberedIntegrity)
-    #     ok_bibs = [cite.target for cite in result.valids if cite.target]
-    #     ok_bibs = set(ok_bibs)
-    #     logger.success(f"Result {len(ok_bibs)} / {ans}")
-    #     accs2.append(len(ok_bibs) / ans)
-    # logger.success(f"Unnumbered Average accuracy: {sum(accs2) / len(accs2):.3f}")
+    accs2 = []
+    logger.info("Testing unnumbered papers")
+    for fname, ans in testset2.items():
+        logger.info(f"Testing {fname}")
+        result = deal(f"pdf/{fname}")
+        integrity = result.integrity()
+        assert isinstance(integrity, UnnumberedIntegrity)
+        ok_bibs = [cite.target for cite in result.valids if cite.target]
+        ok_bibs = set(ok_bibs)
+        logger.success(f"Result {len(ok_bibs)} / {ans}")
+        accs2.append(len(ok_bibs) / ans)
+    logger.success(f"Unnumbered Average accuracy: {sum(accs2) / len(accs2):.3f}")
