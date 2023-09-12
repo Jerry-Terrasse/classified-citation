@@ -242,7 +242,7 @@ def collect_cites(reader: PdfReader) -> list[Citation]:
                 continue
             rect_obj = obj['/Rect']
             assert isinstance(rect_obj, ArrayObject)
-            rect: Rect = tuple(rect_obj[i].as_numeric() for i in range(4))
+            rect: Rect = tuple(rect_obj[i].as_numeric() for i in range(4)) # type: ignore
             if '/Dest' in obj:
                 dest_obj = obj['/Dest']
                 if isinstance(dest_obj, TextStringObject|ByteStringObject): # Named Destination
