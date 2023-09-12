@@ -106,7 +106,7 @@ class Citation: # get from links
             detail = f"to {self.destination}"
         else:
             detail = "without destination"
-        return f"<Citation: {self.text} on page {self.page} at {self.rect} {detail}>"
+        return f"<Citation: [{''.join(self.text) if self.text else None}] on page {self.page} at {self.rect} {detail}>"
         
 
 @dataclass
@@ -574,7 +574,7 @@ def deal(fname: str, detail: dict = None) -> PDFResult:
     logger.success(f"Detected split_LR: {splited_layout}")
     match_context(pages, cites)
     cites = [cite for cite in cites if cite.text and cite.context]
-    if detail: detail['contexted_cites'] = copy.deepcopy(cites)
+    if detail: detail['contexted_links'] = copy.deepcopy(cites)
     
     dist_map: dict[str, Destination] = {
         dest.linkname: dest for dest in dests if dest.linkname
@@ -587,9 +587,10 @@ def deal(fname: str, detail: dict = None) -> PDFResult:
         else:
             logger.warning(f"Cannot find destination {cite.linkname} for {cite}")
     cites = [cite for cite in cites if cite.destination]
+    if detail: detail['cites'] = copy.deepcopy(cites)
     
     match_bibitem(bibs, cites)
-    if detail: detail['bibed_cites'] = copy.deepcopy(cites)
+    if detail: detail['bibed_cites'] = copy.deepcopy([cite for cite in cites if cite.target is not None])
     
     bibs = list(chain.from_iterable(bibs))
     return PDFResult(cites, dests, bibs)

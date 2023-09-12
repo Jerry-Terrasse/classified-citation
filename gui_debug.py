@@ -33,8 +33,12 @@ def update_result(result_panel: TabPanel, res: PDFResult, integrity: ResultInteg
         ui.separator()
         
         summary = res.summary()
-        for smy in summary:
-            ui.markdown(f"```{smy}```")
+        with ui.card():
+            with ui.card_section():
+                for idx, smy in enumerate(summary):
+                    with ui.row():
+                        ui.label(f'[{idx+1}]')
+                        ui.markdown(f"```{smy}```")
 
 def update_integrity(integrity_panel: TabPanel, integrity: ResultIntegrity):
     with integrity_panel:
@@ -55,8 +59,10 @@ def update_destination(destination_panel: TabPanel, detail: dict):
         return
     dests = cast(list[Destination], detail['dests'])
     with destination_panel:
-        for dest in dests:
-            ui.markdown(f"```{dest}```")
+        for idx, dest in enumerate(dests):
+            with ui.row():
+                ui.label(f'[{idx+1}]')
+                ui.markdown(f"```{dest}```")
 
 def update_link(link_panel: TabPanel, detail: dict):
     link_panel.clear()
@@ -64,8 +70,10 @@ def update_link(link_panel: TabPanel, detail: dict):
         return
     links = cast(list[Citation], detail['links'])
     with link_panel:
-        for link in links:
-            ui.markdown(f"```{link}```")
+        for idx, link in enumerate(links):
+            with ui.row():
+                ui.label(f'[{idx+1}]')
+                ui.markdown(f"```{link}```")
 
 def update_bibitem(bibitem_panel: TabPanel, detail: dict):
     bibitem_panel.clear()
@@ -75,26 +83,43 @@ def update_bibitem(bibitem_panel: TabPanel, detail: dict):
     with bibitem_panel:
         for page, bibs in enumerate(bibitems):
             with ui.expansion(f"Page {page+1} ({len(bibs)} items)"):
-                for bib in bibs:
-                    ui.markdown(f"```{bib}```")
+                for idx, bib in enumerate(bibs):
+                    with ui.row():
+                        ui.label(f'[{idx+1}]')
+                        ui.markdown(f"```{bib}```")
     
-def update_contexted_cites(contexted_cites_panel: TabPanel, detail: dict):
-    contexted_cites_panel.clear()
-    if 'contexted_cites' not in detail:
+def update_contexted_link(contexted_link_panel: TabPanel, detail: dict):
+    contexted_link_panel.clear()
+    if 'contexted_links' not in detail:
         return
-    cites = cast(list[Citation], detail['contexted_cites'])
-    with contexted_cites_panel:
-        for cite in cites:
-            ui.markdown(f"```{cite}```")
+    links = cast(list[Citation], detail['contexted_links'])
+    with contexted_link_panel:
+        for idx, link in enumerate(links):
+            with ui.row():
+                ui.label(f'[{idx+1}]')
+                ui.markdown(f"```{link}```")
 
-def update_bibed_cites(bibed_cites_panel: TabPanel, detail: dict):
-    bibed_cites_panel.clear()
+def update_cite(cite_panel: TabPanel, detail: dict):
+    cite_panel.clear()
+    if 'cites' not in detail:
+        return
+    cites = cast(list[Citation], detail['cites'])
+    with cite_panel:
+        for idx, cite in enumerate(cites):
+            with ui.row():
+                ui.label(f'[{idx+1}]')
+                ui.markdown(f"```{cite}```")
+
+def update_bibed_cite(bibed_cite_panel: TabPanel, detail: dict):
+    bibed_cite_panel.clear()
     if 'bibed_cites' not in detail:
         return
     cites = cast(list[Citation], detail['bibed_cites'])
-    with bibed_cites_panel:
-        for cite in cites:
-            ui.markdown(f"```{cite}```")
+    with bibed_cite_panel:
+        for idx, cite in enumerate(cites):
+            with ui.row():
+                ui.label(f'[{idx+1}]')
+                ui.markdown(f"```{cite}```")
 
 def analyze():
     global detail, last_file
@@ -116,8 +141,9 @@ def analyze():
         update_destination(destination_panel, detail)
         update_link(link_panel, detail)
         update_bibitem(bibitem_panel, detail)
-        update_contexted_cites(contexted_cites_panel, detail)
-        update_bibed_cites(bibed_cites_panel, detail)
+        update_contexted_link(contexted_link_panel, detail)
+        update_cite(cite_panel, detail)
+        update_bibed_cite(bibed_cite_panel, detail)
         
     # analyze_btn.style('display:inline-block')
     # analyze_spn.style('display:none')
@@ -143,8 +169,9 @@ with ui.tabs().classes('w-full') as tabs:
     destination_tab = ui.tab('destination')
     link_tab = ui.tab('link')
     bibitem_tab = ui.tab('bibitem')
-    contexted_cites_tab = ui.tab('contexted_cites')
-    bibed_cites_tab = ui.tab('bibed_cites')
+    contexted_link_tab = ui.tab('contexted_link')
+    cite_tab = ui.tab('cite')
+    bibed_cite_tab = ui.tab('bibed_cites')
     
 with ui.tab_panels(tabs, value=result_tab).classes('w-full'):
     with ui.tab_panel(result_tab) as result_panel:
@@ -157,9 +184,11 @@ with ui.tab_panels(tabs, value=result_tab).classes('w-full'):
         pass
     with ui.tab_panel(bibitem_tab) as bibitem_panel:
         pass
-    with ui.tab_panel(contexted_cites_tab) as contexted_cites_panel:
+    with ui.tab_panel(contexted_link_tab) as contexted_link_panel:
         pass
-    with ui.tab_panel(bibed_cites_tab) as bibed_cites_panel:
+    with ui.tab_panel(cite_tab) as cite_panel:
+        pass
+    with ui.tab_panel(bibed_cite_tab) as bibed_cite_panel:
         pass
         
 
