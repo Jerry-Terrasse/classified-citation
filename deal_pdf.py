@@ -2,6 +2,7 @@ import sys
 from dataclasses import dataclass
 from itertools import groupby, chain, islice
 import re
+import copy
 from Levenshtein import ratio
 
 import PyPDF2
@@ -132,8 +133,9 @@ class PDFResult:
     dests: list[Destination]
     bibs: list[Bibitem]
     _valids: Optional[list[Citation]] = None
-    def summary(self, need_sort: bool = True) -> None:
+    def summary(self, need_sort: bool = True) -> list[str]:
         valids = self.valids
+        res = []
         if need_sort:
             def key(cite: Citation) -> tuple[int, int|str]:
                 if cite.target and cite.target.label:
@@ -150,12 +152,15 @@ class PDFResult:
             context = f"{context[:150]}..." if len(context) > 50 else context
             target = cite.target.text.replace("\n", " ")
             target = f"{target[:150]}..." if len(target) > 50 else target
-            logger.info(f"""
+            smy = f"""
 label: {''.join(cite.text) if cite.text and cite.text!=[] else '<empty>'}
 context: {context}
 bibitem [{cite.target.label}]: {target}
 """
-)
+            logger.info(smy)
+            res.append(smy)
+        return res
+            
     @property
     def valids(self) -> list[Citation]:
         if self._valids is None:
@@ -553,19 +558,23 @@ def collect_bibs(pages: list[LTPage], split_LR: bool = False) -> list[list[Bibit
     return all_bibs
 
 @logger.catch(reraise=True)
-def deal(fname: str) -> PDFResult:
+def deal(fname: str, detail: dict = None) -> PDFResult:
     reader = PyPDF2.PdfReader(fname)
     dests = collect_dests(reader)
+    if detail: detail['dests'] = copy.deepcopy(dests) # for debug
     cites = collect_cites(reader)
+    if detail: detail['links'] = copy.deepcopy(cites)
     
     pages = list(extract_pages(fname)) # use pdfminer for layout analysis
     # logger.debug(extract_text(fname))
     splited_layout = judge_split_LR(pages) # is the document splited into left and right parts?
     bibs = collect_bibs(pages, splited_layout)
+    if detail: detail['bibs'] = copy.deepcopy(bibs)
     # splited_layout = False
     logger.success(f"Detected split_LR: {splited_layout}")
     match_context(pages, cites)
     cites = [cite for cite in cites if cite.text and cite.context]
+    if detail: detail['contexted_cites'] = copy.deepcopy(cites)
     
     dist_map: dict[str, Destination] = {
         dest.linkname: dest for dest in dests if dest.linkname
@@ -580,6 +589,7 @@ def deal(fname: str) -> PDFResult:
     cites = [cite for cite in cites if cite.destination]
     
     match_bibitem(bibs, cites)
+    if detail: detail['bibed_cites'] = copy.deepcopy(cites)
     
     bibs = list(chain.from_iterable(bibs))
     return PDFResult(cites, dests, bibs)
