@@ -27,8 +27,10 @@ from pdfminer.layout import (
     LTChar,
     LTAnno,
     LTTextContainer,
+    LTFigure,
 )
 from pdfminer.high_level import extract_pages, extract_text
+from pdfminer.utils import fsplit
 
 from utils import Rect, Point, contains, overlap, area
 
@@ -285,6 +287,19 @@ def collect_cites(reader: PdfReader) -> list[Citation]:
             else:
                 logger.warning(f"Ignoring link {obj}")
     return res
+
+def extract_text_in_figures(pages: list[LTPage]):
+    for page in pages:
+        text_objs = []
+        for obj in page:
+            if isinstance(obj, LTFigure):
+                text_obj, _ = fsplit(lambda o: isinstance(o, LTChar), obj)
+                if len(text_obj) > 100: # It's not only a figure
+                    text_objs.extend(text_obj)
+        if text_objs:
+            page.extend(text_objs)
+            page.analyze(LAParams())
+    return
 
 def walk_context(layout: LTComponent, cite: Citation, depth: int = 0) -> None:
     """
@@ -566,6 +581,7 @@ def deal(fname: str, detail: dict = None) -> PDFResult:
     if detail: detail['links'] = copy.deepcopy(cites)
     
     pages = list(extract_pages(fname)) # use pdfminer for layout analysis
+    extract_text_in_figures(pages)
     # logger.debug(extract_text(fname))
     splited_layout = judge_split_LR(pages) # is the document splited into left and right parts?
     bibs = collect_bibs(pages, splited_layout)
@@ -590,13 +606,14 @@ def deal(fname: str, detail: dict = None) -> PDFResult:
     if detail: detail['cites'] = copy.deepcopy(cites)
     
     match_bibitem(bibs, cites)
+    if detail: detail['cite_cands'] = copy.deepcopy(cites)
     if detail: detail['bibed_cites'] = copy.deepcopy([cite for cite in cites if cite.target is not None])
     
     bibs = list(chain.from_iterable(bibs))
     return PDFResult(cites, dests, bibs)
 
 if __name__ == '__main__':
-    fname = "pdf/2109.09774.pdf"
+    fname = "test_pdf/AdamAmethodforstochasticoptimization.pdf"
     if len(sys.argv) > 1:
         fname = sys.argv[1]
     result = deal(fname)

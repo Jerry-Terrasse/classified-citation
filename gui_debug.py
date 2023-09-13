@@ -110,6 +110,24 @@ def update_cite(cite_panel: TabPanel, detail: dict):
                 ui.label(f'[{idx+1}]')
                 ui.markdown(f"```{cite}```")
 
+def update_cite_cands(cite_cands_panel: TabPanel, detail: dict):
+    cite_cands_panel.clear()
+    if 'cite_cands' not in detail:
+        return
+    cites = cast(list[Citation], detail['cite_cands'])
+    with cite_cands_panel:
+        for idx, cite in enumerate(cites):
+            with ui.card():
+                with ui.card_section():
+                    with ui.row():
+                        ui.label(f'[{idx+1}]')
+                        ui.markdown(f"```{cite}```")
+                    if cite.destination is not None and cite.destination.candidates:
+                        for cand in cite.destination.candidates:
+                            ui.markdown(f"```{cand}```")
+                    else:
+                        ui.markdown(f"```No candidates found.```")
+
 def update_bibed_cite(bibed_cite_panel: TabPanel, detail: dict):
     bibed_cite_panel.clear()
     if 'bibed_cites' not in detail:
@@ -143,6 +161,7 @@ def analyze():
         update_bibitem(bibitem_panel, detail)
         update_contexted_link(contexted_link_panel, detail)
         update_cite(cite_panel, detail)
+        update_cite_cands(cite_cands_panel, detail)
         update_bibed_cite(bibed_cite_panel, detail)
         
     # analyze_btn.style('display:inline-block')
@@ -171,6 +190,7 @@ with ui.tabs().classes('w-full') as tabs:
     bibitem_tab = ui.tab('bibitem')
     contexted_link_tab = ui.tab('contexted_link')
     cite_tab = ui.tab('cite')
+    cite_cands_tab = ui.tab('cite_cands')
     bibed_cite_tab = ui.tab('bibed_cites')
     
 with ui.tab_panels(tabs, value=result_tab).classes('w-full'):
@@ -187,6 +207,8 @@ with ui.tab_panels(tabs, value=result_tab).classes('w-full'):
     with ui.tab_panel(contexted_link_tab) as contexted_link_panel:
         pass
     with ui.tab_panel(cite_tab) as cite_panel:
+        pass
+    with ui.tab_panel(cite_cands_tab) as cite_cands_panel:
         pass
     with ui.tab_panel(bibed_cite_tab) as bibed_cite_panel:
         pass
