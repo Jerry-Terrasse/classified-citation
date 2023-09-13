@@ -20,6 +20,7 @@ testset2 = {
     "Abroadcoveragechallengecorpusforsentenceunderstandingthroughinference.pdf": 36,
     "Adecomposableattentionmodelfornaturallanguageinference.pdf": 31,
     "Ahierarchicalmodelofreviewsforaspectbasedsentimentanalysis.pdf": 28,
+    "Alargeannotatedcorpusforlearningnaturallanguageinference.pdf": 35,
 }
 
 if __name__ == '__main__':

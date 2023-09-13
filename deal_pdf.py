@@ -216,7 +216,7 @@ def collect_dests(reader: PdfReader) -> list[Destination]:
         obj = cast(PDFDestination, obj)
         # logger.debug(f"{name} {obj} {obj['/Type']}")
         if obj['/Type'] == '/XYZ':
-            assert obj.left and obj.top
+            assert obj.left is not None and obj.top is not None
             res.append(Destination(
                 obj,
                 reader.get_destination_page_number(obj),
@@ -224,7 +224,7 @@ def collect_dests(reader: PdfReader) -> list[Destination]:
                 pos=(obj.left.as_numeric(), obj.top.as_numeric()),
             ))
         elif obj['/Type'] == '/FitH':
-            assert obj.top
+            assert obj.top is not None
             res.append(Destination(
                 obj,
                 reader.get_destination_page_number(obj),
