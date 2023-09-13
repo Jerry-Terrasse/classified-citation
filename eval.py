@@ -18,6 +18,8 @@ testset2 = {
     "2306.14696.pdf": 68,
     "2306.17260.pdf": 43,
     "Abroadcoveragechallengecorpusforsentenceunderstandingthroughinference.pdf": 36,
+    "Adecomposableattentionmodelfornaturallanguageinference.pdf": 31,
+    "Ahierarchicalmodelofreviewsforaspectbasedsentimentanalysis.pdf": 28,
 }
 
 if __name__ == '__main__':

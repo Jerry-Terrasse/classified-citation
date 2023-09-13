@@ -426,7 +426,7 @@ def match_bibitem_candidate(cands: list[Bibitem], cite: str) -> Bibitem|None:
     #     return None
     for bib in cands:
         for people in peoples:
-            if people in ''.join(bib.text.split(maxsplit=5)[:5]):
+            if people in '#'.join(bib.text.split(maxsplit=10)[:10]):
                 return bib
     logger.warning(f"Cannot find bibitem for {cite}")
     return None
@@ -440,11 +440,17 @@ def match_bibitem(bibs: list[list[Bibitem]], cites: list[Citation]):
     for idx, page_bibs in enumerate(bibs):
         for cite in cites_on_pages.get(idx, []):
             assert cite.destination
+            destination = cite.destination
+            if destination.target is not None:
+                continue # No need to match again
             assert cite.text is not None
-            cand_box = cite.destination.candidate_box()
-            cite.destination.candidates = [bib for bib in page_bibs if overlap(cand_box, bib.obj.bbox) > 20]
-            target = match_bibitem_candidate(cite.destination.candidates, ''.join(cite.text))
-            cite.target = cite.destination.target = target
+            cand_box = destination.candidate_box()
+            destination.candidates = [bib for bib in page_bibs if overlap(cand_box, bib.obj.bbox) > 20]
+            target = match_bibitem_candidate(destination.candidates, ''.join(cite.text))
+            destination.target = target
+    for cite in cites:
+        assert cite.destination
+        cite.target = cite.destination.target
     return
 
 def judge_split_LR(pages: list[LTPage]) -> bool:
@@ -607,13 +613,12 @@ def deal(fname: str, detail: dict = None) -> PDFResult:
     
     match_bibitem(bibs, cites)
     if detail: detail['cite_cands'] = copy.deepcopy(cites)
-    if detail: detail['bibed_cites'] = copy.deepcopy([cite for cite in cites if cite.target is not None])
     
     bibs = list(chain.from_iterable(bibs))
     return PDFResult(cites, dests, bibs)
 
 if __name__ == '__main__':
-    fname = "test_pdf/AdamAmethodforstochasticoptimization.pdf"
+    fname = "test_pdf/Ahierarchicalmodelofreviewsforaspectbasedsentimentanalysis.pdf"
     if len(sys.argv) > 1:
         fname = sys.argv[1]
     result = deal(fname)

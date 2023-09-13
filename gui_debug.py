@@ -116,8 +116,11 @@ def update_cite_cands(cite_cands_panel: TabPanel, detail: dict):
         return
     cites = cast(list[Citation], detail['cite_cands'])
     with cite_cands_panel:
+        filter_bibed = ui.switch('filter bibed cites')
         for idx, cite in enumerate(cites):
-            with ui.card():
+            with ui.card() as card:
+                if cite.target is not None:
+                    card.bind_visibility_from(filter_bibed, 'value', backward=lambda x: not x)
                 with ui.card_section():
                     with ui.row():
                         ui.label(f'[{idx+1}]')
@@ -152,6 +155,11 @@ def analyze():
     logger.info(f'Analyzing {fname.value}')
     res = deal(fname.value, detail)
     integrity = res.integrity()
+    
+    if 'cite_cands' in detail:
+        cites = cast(list[Citation], detail['cite_cands'])
+        detail['bibed_cites'] = [cite for cite in cites if cite.target is not None]
+        detail['unbibed_cites'] = [cite for cite in cites if cite.target is None]
     
     with ui.tab_panels(tabs, value=result_tab).classes('w-full'):
         update_result(result_panel, res, integrity)
