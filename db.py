@@ -14,7 +14,7 @@ from sqlalchemy.orm import (
 
 from typing import Sequence
 
-engine = sqlalchemy.create_engine('sqlite:///database.db')
+engine = None
 
 class ModelBase(DeclarativeBase):
     pass
@@ -88,6 +88,10 @@ class PaperData:
             paper.paper_id
         )
 
+def init_engine(db_path: str):
+    global engine
+    engine = sqlalchemy.create_engine(db_path)
+
 def select_paper_by_id(paper_id: int) -> Paper|None:
     stmt = select(Paper).where(Paper.paper_id == paper_id)
     with Session(engine) as session:
@@ -101,6 +105,7 @@ def select_paper_all() -> Sequence[Paper]:
         return res.scalars().all()
 
 if __name__ == '__main__':
+    init_engine("sqlite:///database.db")
     papers = select_paper_all()
     for paper in papers:
         print(paper)
