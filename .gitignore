@@ -163,6 +163,7 @@ cython_debug/
 # Data
 data/
 pdf/
+cite_img/
 *.pdf
 
 # PyEnv
