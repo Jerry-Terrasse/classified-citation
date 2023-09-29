@@ -51,6 +51,7 @@ def gen_edge(papers: list[PaperData], V: list[dict]):
             
 
 if __name__ == '__main__':
+    db.init_engine('sqlite:///../phocus/database.db')
     papers = db.select_paper_all()
     papers = [PaperData.from_Paper(paper) for paper in papers]
     
