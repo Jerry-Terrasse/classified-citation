@@ -6,6 +6,7 @@ from sqlalchemy import (
     String,
     Text,
     select,
+    update,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -87,6 +88,18 @@ class PaperData:
             (True, paper_year),
             paper.paper_id
         )
+    def to_Paper(self) -> Paper:
+        author_list_obj = json.dumps(self.author_list)
+        paper_citation_obj = json.dumps(self.paper_citation)
+        paper_year_obj = json.dumps(self.paper_year)
+        return Paper(
+            paper_title=self.paper_title,
+            website_url=self.website_url,
+            author_list=author_list_obj,
+            paper_citation=paper_citation_obj,
+            paper_year=paper_year_obj,
+            paper_id=self.paper_id,
+        )
 
 def init_engine(db_path: str):
     global engine
@@ -103,6 +116,12 @@ def select_paper_all() -> Sequence[Paper]:
     with Session(engine) as session:
         res = session.execute(stmt)
         return res.scalars().all()
+
+def update_paper(paper: Paper, column: str):
+    stmt = update(Paper).where(Paper.paper_id == paper.paper_id).values({column: paper.__getattribute__(column)})
+    with Session(engine) as session:
+        session.execute(stmt)
+        session.commit()
 
 if __name__ == '__main__':
     init_engine("sqlite:///database.db")
