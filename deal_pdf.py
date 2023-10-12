@@ -28,6 +28,8 @@ from pdfminer.layout import (
     LTAnno,
     LTTextContainer,
     LTFigure,
+    LTItem,
+    LTTextGroup,
 )
 from pdfminer.high_level import extract_pages, extract_text
 from pdfminer.utils import fsplit
@@ -37,7 +39,7 @@ from utils import Rect, Point, contains, overlap, area
 
 from loguru import logger
 
-from typing import cast, Iterator, Optional, Iterable
+from typing import cast, Iterator, Optional, Iterable, Sequence
 
 
 class Bibitem:
@@ -345,6 +347,48 @@ def walk_context(layout: LTComponent, cite: Citation, depth: int = 0) -> None:
             if not isinstance(child, LTAnno):
                 walk_context(child, cite, depth + 1)
 
+LayoutPath = list[LTItem]
+ImuLayoutPath = tuple[LTItem, ...] # immutable
+def flatten_page(layout: LTItem, path: LayoutPath, dest: list[tuple[str, ImuLayoutPath]]) -> None:
+    """
+    flatten the layout tree into a linear format
+    """
+    if isinstance(layout, LTContainer):
+        for child in layout:
+            path.append(child)
+            flatten_page(child, path, dest)
+            path.pop()
+    elif isinstance(layout, LTChar|LTAnno):
+        if len(layout.get_text()) == 1:
+            dest.append((layout.get_text(), tuple(path)))
+        else:
+            path_t = tuple(path)
+            for c in layout.get_text():
+                dest.append((c, path_t))
+    else:
+        logger.warning(f"[Flatten] Unknown layout type {layout}")
+
+citation_patterns_str = [
+    r'\[[\d\w\s]+\]', # [42]
+    r'[A-Z][A-Za-z]+,? +\(?(18|19|20)\d{2}[a-z]?\)?', # Cortes, 2017b
+    r'[A-Z][A-Za-z]+ +(and|&) +[A-Z][A-Za-z]+,? \(?(18|19|20)\d{2}[a-z]?\)?', # Cortes and Haffner, 2017b
+    r'[A-Z][A-Za-z]+ +et +al.,? +\(?(18|19|20)\d{2}[a-z]?\)?', # Cortes et al., 2017b
+]
+citation_patterns = [re.compile(p) for p in citation_patterns_str]
+def detect_citation(flat_pages: list[tuple[str, list[ImuLayoutPath]]]) -> list[Citation]:
+    result: list[Citation] = []
+    for page_idx, (text, paths) in enumerate(flat_pages):
+        for pattern in citation_patterns:
+            for match in pattern.finditer(text):
+                s, e = match.span()
+                layout = LTTextGroup(p[-1] for p in paths[s:e] if isinstance(p[-1], LTChar)) # type: ignore
+                logger.debug(f"Detected citation {text[s:e]} on page {page_idx} at {layout.bbox}")
+                logger.debug(f"Context: {text[max(0, s-20):min(len(text), e+20)]}")
+                result.append(Citation(
+                    page_idx,
+                    layout.bbox,
+                ))
+    return result
 
 def match_context_page(page: LTPage, cites: list[Citation]) -> None:
     for cite in cites: # maybe slow
@@ -392,9 +436,9 @@ def detect_bibs(page: LTPage, split_LR: bool = False) -> list[Bibitem]:
             bib.label = label
     return bibs
 
-peple_pattern = re.compile(r"[A-Z][a-z]+")
-and_pattern = re.compile(r"([A-Z][a-z]+)and([A-Z][a-z]+)") # almost nobody use "and" to end his name
-etal_pattern = re.compile(r"([A-Z][a-z]+)etal\.?")
+peple_pattern = re.compile(r"[A-Z][A-Za-z]+")
+and_pattern = re.compile(r"([A-Z][A-Za-z]+)and([A-Z][A-Za-z]+)") # almost nobody use "and" to end his name
+etal_pattern = re.compile(r"([A-Z][A-Za-z]+)etal\.?")
 def match_bibitem_candidate(cands: list[Bibitem], cite: str) -> Bibitem|None:
     cite = cite.replace('[', '').replace(']', '').strip()
     if cite == "":
@@ -413,9 +457,9 @@ def match_bibitem_candidate(cands: list[Bibitem], cite: str) -> Bibitem|None:
     # 1. Alice
     # 2. Alice and Bob
     # 3. Alice et al.
-    if (m:=and_pattern.search(cite)):
+    if m:=and_pattern.search(cite):
         peoples = [m.group(1), m.group(2)]
-    elif (m:=etal_pattern.search(cite)):
+    elif m:=etal_pattern.search(cite):
         peoples = [m.group(1)]
     else:
         peoples = peple_pattern.findall(cite)
@@ -436,6 +480,7 @@ def match_bibitem(bibs: list[list[Bibitem]], cites: list[Citation]):
     """
     match destinations to bibitems
     """
+    nolink_cites, cites = fsplit(lambda c: c.destination is None, cites)
     cites.sort(key=lambda c: c.destination.page) # type: ignore
     cites_on_pages = {k: list(l) for k, l in groupby(cites, lambda c: c.destination.page)} # type: ignore
     for idx, page_bibs in enumerate(bibs):
@@ -452,6 +497,12 @@ def match_bibitem(bibs: list[list[Bibitem]], cites: list[Citation]):
     for cite in cites:
         assert cite.destination
         cite.target = cite.destination.target
+            
+    all_bibs = list(chain.from_iterable(bibs))
+    for cite in nolink_cites:
+        assert cite.text is not None
+        target = match_bibitem_candidate(all_bibs, ''.join(cite.text))
+        cite.target = target
     return
 
 def judge_split_LR(pages: list[LTPage]) -> bool:
@@ -619,9 +670,22 @@ def deal(fname: str, detail: dict = None) -> PDFResult:
     if detail: detail['bibs'] = copy.deepcopy(bibs)
     # splited_layout = False
     logger.success(f"Detected split_LR: {splited_layout}")
+    
+    flat_pages_: list[list[tuple[str, ImuLayoutPath]]] = [[] for _ in pages]
+    [flatten_page(page, [page], flat_page) for page, flat_page in zip(pages, flat_pages_)]
+    flat_pages: list[tuple[str, list[ImuLayoutPath]]] = []
+    for page in flat_pages_:
+        text = ''.join(text for text, _ in page)
+        assert len(text) == len(page)
+        flat_pages.append((text, [path for _, path in page]))
+    doc_text = ''.join(text for text, _ in flat_pages)
+    logger.debug(f"Document text: {doc_text}")
+    if len(cites) < 5: # maybe no link
+        cites.extend(detect_citation(flat_pages))
+    
     match_context(pages, cites)
     cites = [cite for cite in cites if cite.text and cite.context]
-    if detail: detail['contexted_links'] = copy.deepcopy(cites)
+    if detail: detail['contexted_cites'] = copy.deepcopy(cites)
     
     dist_map: dict[str, Destination] = {
         dest.linkname: dest for dest in dests if dest.linkname
@@ -629,11 +693,13 @@ def deal(fname: str, detail: dict = None) -> PDFResult:
     for cite in cites:
         if cite.destination: # Explicit Destination
             continue
+        if cite.linkname is None: # citation directly from text, without link
+            continue
         if cite.linkname in dist_map:
             cite.destination = dist_map[cite.linkname]
         else:
             logger.warning(f"Cannot find destination {cite.linkname} for {cite}")
-    cites = [cite for cite in cites if cite.destination]
+    cites = [cite for cite in cites if cite.destination or cite.linkname is None]
     if detail: detail['cites'] = copy.deepcopy(cites)
     
     match_bibitem(bibs, cites)
