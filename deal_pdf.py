@@ -32,7 +32,7 @@ from pdfminer.layout import (
 from pdfminer.high_level import extract_pages, extract_text
 from pdfminer.utils import fsplit
 
-from pdf_image import get_images, cut_img, save_img
+# from pdf_image import get_images, cut_img, save_img
 from utils import Rect, Point, contains, overlap, area
 
 from loguru import logger
@@ -591,28 +591,28 @@ def deal(fname: str, detail: dict = None) -> PDFResult:
     extract_text_in_figures(pages)
     # logger.debug(extract_text(fname))
     
-    page_imgs = get_images(fname)
-    cites.sort(key=lambda c: c.page)
-    cites_on_pages = {k: list(l) for k, l in groupby(cites, lambda c: c.page)}
-    img_cnt = 0
-    for k, items in cites_on_pages.items():
-        page = pages[k]
-        items = [item.rect for item in items]
-        for textbox in page:
-            if not isinstance(textbox, LTTextBox):
-                continue
-            targets = [item for item in items if contains(textbox.bbox, item)]
-            if not targets:
-                if area(textbox.bbox) > 10000:
-                    if img_cnt % 10 != 0:
-                        continue
-                else:
-                    if img_cnt % 30 != 0:
-                        continue
-            textbox_img = cut_img(page_imgs[k], textbox.bbox, page.bbox)
-            save_img(f"cite_img/{img_cnt}", textbox_img, textbox.bbox, targets, 'YOLO')
-            save_img(f"cite_img/{img_cnt}", textbox_img, textbox.bbox, targets, 'LabelMe')
-            img_cnt += 1
+    # page_imgs = get_images(fname)
+    # cites.sort(key=lambda c: c.page)
+    # cites_on_pages = {k: list(l) for k, l in groupby(cites, lambda c: c.page)}
+    # img_cnt = 0
+    # for k, items in cites_on_pages.items():
+    #     page = pages[k]
+    #     items = [item.rect for item in items]
+    #     for textbox in page:
+    #         if not isinstance(textbox, LTTextBox):
+    #             continue
+    #         targets = [item for item in items if contains(textbox.bbox, item)]
+    #         if not targets:
+    #             if area(textbox.bbox) > 10000:
+    #                 if img_cnt % 10 != 0:
+    #                     continue
+    #             else:
+    #                 if img_cnt % 30 != 0:
+    #                     continue
+    #         textbox_img = cut_img(page_imgs[k], textbox.bbox, page.bbox)
+    #         save_img(f"cite_img/{img_cnt}", textbox_img, textbox.bbox, targets, 'YOLO')
+    #         save_img(f"cite_img/{img_cnt}", textbox_img, textbox.bbox, targets, 'LabelMe')
+    #         img_cnt += 1
     
     splited_layout = judge_split_LR(pages) # is the document splited into left and right parts?
     bibs = collect_bibs(pages, splited_layout)
