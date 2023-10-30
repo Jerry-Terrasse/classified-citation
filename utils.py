@@ -1,4 +1,6 @@
 from shapely import geometry
+import requests
+import json
 
 Rect = tuple[float, float, float, float]
 Point = tuple[float, float]
@@ -22,3 +24,14 @@ def area(rect: Rect) -> float:
     # rect = [x0, y0, x1, y1]
     return (rect[2] - rect[0]) * (rect[3] - rect[1])
     # return geometry.box(*rect).area # too slow
+
+cfg = json.load(open('config.json', 'r'))
+
+def parscit_batch(texts: list[str]) -> list[dict]:
+    url = cfg['url']
+    username = cfg['username']
+    password = cfg['password']
+    
+    res = requests.post(url, json=texts, auth=(username, password))
+    res.raise_for_status()
+    return res.json()

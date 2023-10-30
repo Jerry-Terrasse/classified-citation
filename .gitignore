@@ -165,6 +165,7 @@ data/
 pdf/
 cite_img/
 *.pdf
+config.json
 
 # PyEnv
 .python-version

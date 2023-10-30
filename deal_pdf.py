@@ -35,7 +35,7 @@ from pdfminer.high_level import extract_pages, extract_text
 from pdfminer.utils import fsplit
 
 # from pdf_image import get_images, cut_img, save_img
-from utils import Rect, Point, contains, overlap, area
+from utils import Rect, Point, contains, overlap, area, parscit_batch
 
 from loguru import logger
 
@@ -52,10 +52,11 @@ class Bibitem:
     ) -> None:
         self.obj = obj # the text box in layout tree
         self.page = page # the page index, start from 0
-        self.text = text # the text of the bibitem
+        self.text = text.replace('\n', ' ') # the text of the bibitem
         self.label = label # "[xx]" if exists, or None
+        self.title: Optional[str] = None # the title of the bibitem
     def __repr__(self) -> str:
-        return f"<Bibitem: {self.text} on page {self.page} with label {self.label}>"
+        return f"<Bibitem: {f'{{{self.title}}}' if self.title else self.text} on page {self.page} with label {self.label}>"
 
 class Destination:
     def __init__(
@@ -155,8 +156,11 @@ class PDFResult:
             assert cite.target
             context = " ".join(cite.context).replace("\n", " ")
             context = f"{context[:150]}..." if len(context) > 50 else context
-            target = cite.target.text.replace("\n", " ")
-            target = f"{target[:150]}..." if len(target) > 50 else target
+            if cite.target.title:
+                target = f"{{{cite.target.title}}}"
+            else:
+                target = cite.target.text.replace("\n", " ")
+                target = f"{target[:150]}..." if len(target) > 50 else target
             smy = f"""
 label: {''.join(cite.text) if cite.text and cite.text!=[] else '<empty>'}
 context: {context}
@@ -527,6 +531,38 @@ def make_textbox(lines: Iterable[LTTextLine]) -> LTTextBox:
     box.extend(lines)
     return box
 
+def detect_title(bibs: list[list[Bibitem]]):
+    logger.info(f"Detecting bibitem titles by ParsCit")
+    bib_list = list(chain.from_iterable(bibs))
+    bib_list.sort(key=lambda b: len(b.text.split()))
+    for i in range(0, len(bib_list), 32):
+        batch = bib_list[i: i+32]
+        texts = [b.text for b in batch]
+        res = parscit_batch(texts)
+        logger.debug(f"Received batch {i//32}")
+        for pred, bib in zip(res, batch):
+            labels: list[str] = pred['tags'].split()
+            tokens: list[str] = pred['text_tokens']
+            title_tokens = []
+            
+            flag = False
+            for i in range(len(tokens)):
+                if labels[i] == 'title':
+                    title_tokens.append(tokens[i])
+                elif title_tokens:
+                    if flag:
+                        break
+                    else:
+                        flag = True
+            
+            if len(title_tokens) < 2:
+                logger.warning(f"Cannot detect title for {bib.text}")
+                continue
+            bib.title = ' '.join(title_tokens).replace('- ', '')
+            if bib.title.endswith(' In'):
+                bib.title = bib.title[:-3]
+    return
+
 def collect_bibs(pages: list[LTPage], split_LR: bool = False) -> list[list[Bibitem]]:
     """
     collect bibitems from pages
@@ -631,7 +667,7 @@ def collect_bibs(pages: list[LTPage], split_LR: bool = False) -> list[list[Bibit
     return all_bibs
 
 @logger.catch(reraise=True)
-def deal(fname: str, detail: dict = None) -> PDFResult:
+def deal(fname: str, parscit: bool = True, detail: dict = None) -> PDFResult:
     reader = PyPDF2.PdfReader(fname)
     dests = collect_dests(reader)
     if detail: detail['dests'] = copy.deepcopy(dests) # for debug
@@ -668,6 +704,9 @@ def deal(fname: str, detail: dict = None) -> PDFResult:
     splited_layout = judge_split_LR(pages) # is the document splited into left and right parts?
     bibs = collect_bibs(pages, splited_layout)
     if detail: detail['bibs'] = copy.deepcopy(bibs)
+    if parscit:
+        detect_title(bibs)
+        bibs = [[bib for bib in page if bib.title] for page in bibs]
     # splited_layout = False
     logger.success(f"Detected split_LR: {splited_layout}")
     
@@ -678,8 +717,8 @@ def deal(fname: str, detail: dict = None) -> PDFResult:
         text = ''.join(text for text, _ in page)
         assert len(text) == len(page)
         flat_pages.append((text, [path for _, path in page]))
-    doc_text = ''.join(text for text, _ in flat_pages)
-    logger.debug(f"Document text: {doc_text}")
+    # doc_text = ''.join(text for text, _ in flat_pages)
+    # logger.debug(f"Document text: {doc_text}")
     if len(cites) < 5: # maybe no link
         cites.extend(detect_citation(flat_pages))
     
