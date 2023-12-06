@@ -44,7 +44,8 @@ from loguru import logger
 
 from typing import cast, Iterator, Optional, Iterable, Sequence
 
-
+# (cid:xxx)
+cid_pattern = re.compile(r"\(cid:\d+\)")
 class Bibitem:
     def __init__(
         self,
@@ -56,6 +57,7 @@ class Bibitem:
         self.obj = obj # the text box in layout tree
         self.page = page # the page index, start from 0
         self.text = text.replace('\n', ' ') # the text of the bibitem
+        self.text = cid_pattern.sub('', self.text)
         self.label = label # "[xx]" if exists, or None
         self.title: Optional[str] = None # the title of the bibitem
     def __repr__(self) -> str:
