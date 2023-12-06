@@ -34,8 +34,11 @@ from pdfminer.layout import (
 from pdfminer.high_level import extract_pages, extract_text
 from pdfminer.utils import fsplit
 
-# from pdf_image import get_images, cut_img, save_img
-from utils import Rect, Point, contains, overlap, area, parscit_batch
+try:
+    # from pdf_image import get_images, cut_img, save_img
+    from utils import Rect, Point, contains, overlap, area, parscit_batch
+except ImportError:
+    from .utils import Rect, Point, contains, overlap, area, parscit_batch
 
 from loguru import logger
 
