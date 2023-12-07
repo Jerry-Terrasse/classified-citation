@@ -53,9 +53,10 @@ def gen_edge(papers: list[PaperData], V: list[dict]):
 if __name__ == '__main__':
     db.init_engine('sqlite:///../phocus/database.db')
     papers = db.select_paper_all()
-    papers = [PaperData.from_Paper(paper) for paper in papers]
+    papers = [PaperData.from_Paper(paper) for paper in papers if paper.paper_citation.startswith("[true")]
     
     V = gen_vertex(papers)
+    print(f"{len(V)} valid papers")
     E = gen_edge(papers, V)
     
     data = json.dumps({
