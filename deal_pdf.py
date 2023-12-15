@@ -674,6 +674,9 @@ def collect_bibs(pages: list[LTPage], split_LR: bool = False) -> list[list[Bibit
 @logger.catch(reraise=True)
 def deal(fname: str, parscit: bool = True, detail: dict = None) -> PDFResult:
     reader = PyPDF2.PdfReader(fname)
+    if reader.numPages > 100:
+        logger.warning(f"Too many pages: {reader.numPages}, maybe not a paper")
+        raise RuntimeError("Too many pages")
     dests = collect_dests(reader)
     if detail: detail['dests'] = copy.deepcopy(dests) # for debug
     cites = collect_cites(reader)
