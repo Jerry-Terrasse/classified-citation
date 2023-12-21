@@ -84,6 +84,7 @@ if __name__ == '__main__':
     V = gen_vertex(papers)
     print(f"{len(V)} valid papers")
     E = gen_edge(papers, V)
+    print(f"{len(E)} valid references")
     
     data = json.dumps({
         'nodes': V,
