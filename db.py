@@ -35,7 +35,7 @@ class Paper(ModelBase):
     paper_citation = Column(Text) # JSON
     paper_year = Column(Text) # JSON
 
-Cite = tuple[str, str, int]
+Cite = tuple[str, str, int, str]
 class PaperData:
     paper_id: int
     paper_title: str
@@ -73,7 +73,7 @@ class PaperData:
         author_list = author_list_obj[1]
         
         paper_citation_obj = json.loads(str(paper.paper_citation))
-        assert paper_citation_obj[0]
+        # assert paper_citation_obj[0]
         paper_citation = paper_citation_obj[1]
         
         paper_year_obj = json.loads(str(paper.paper_year))
@@ -110,6 +110,17 @@ def select_paper_by_id(paper_id: int) -> Paper|None:
     with Session(engine) as session:
         res = session.scalar(stmt)
         return res
+
+paper_data_cache: dict[int, PaperData] = {}
+def paper_data_by_id(paper_id: int) -> PaperData:
+    global paper_data_cache
+    if paper_id in paper_data_cache:
+        return paper_data_cache[paper_id]
+    paper = select_paper_by_id(paper_id)
+    assert paper
+    paper_data = PaperData.from_Paper(paper)
+    paper_data_cache[paper_id] = paper_data
+    return paper_data
 
 def select_paper_all() -> Sequence[Paper]:
     stmt = select(Paper)
