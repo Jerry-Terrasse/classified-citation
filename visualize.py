@@ -1,4 +1,5 @@
 import re
+import os
 from Levenshtein import ratio
 import json
 import itertools
@@ -70,10 +71,16 @@ def gen_edge_worker_init(papers_):
     papers = papers_
 
 def gen_edge(papers: list[PaperData], V: list[dict]):
+    cache_file = f'edge_cache_{len(papers)}.json'
+    if os.path.exists(cache_file):
+        with open(cache_file, 'r') as f:
+            return json.load(f)
     with mp.Pool(initializer=gen_edge_worker_init, initargs=(papers,)) as p:
         # token_list = list(tqdm(p.imap(quote2tokens, self.quotes, chunksize=chunksize), total=len(self.quotes)))
         results = list(tqdm(p.imap(gen_edge_deal_vertex, range(len(papers))), total=len(papers)))
     edges = list(itertools.chain.from_iterable(results))
+    with open(cache_file, 'w') as f:
+        json.dump(edges, f, indent=4)
     return edges
 
 if __name__ == '__main__':
