@@ -181,5 +181,6 @@ temp/
 *.bak
 
 # Output
-visualize.html
-database.db
+*.html
+*.db
+*.png
