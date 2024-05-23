@@ -46,23 +46,24 @@ def gen_vertex(papers: list[PaperData]) -> list[dict]:
 def gen_edge_deal_vertex(idx: int) -> list[dict[str, str]]:
     global papers
     paper = papers[idx]
-    edges = []
+    targets: set[str] = set()
     for cite in paper.paper_citation[1]:
         if cite[2] != -1:
-            edges.append({
-                'source': str(paper.paper_id),
-                'target': str(cite[2]),
-            })
+            targets.add(str(cite[2]))
             continue
         if len(cite) > 3 and cite[3] != '':
             target = find_target_by_title(cite[3], papers)
         else:
             target = find_target(cite[1], papers)
         if target is not None:
-            edges.append({
-                'source': str(paper.paper_id),
-                'target': str(target),
-            })
+            targets.add(str(target))
+    edges = []
+    paper_id = str(paper.paper_id)
+    for target in targets:
+        edges.append({
+            'source': paper_id,
+            'target': str(target),
+        })
     return edges
 
 # worker init in gen_edge

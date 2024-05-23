@@ -1,3 +1,4 @@
+import os
 import re
 import json
 import itertools
@@ -5,7 +6,7 @@ import multiprocessing as mp
 from tqdm import tqdm
 from Levenshtein import ratio
 import graph_tool.all as gt
-import os
+from pyvis.network import Network
 
 import db
 from db import Paper, Author, PaperData
@@ -43,27 +44,29 @@ def gen_vertex(papers: list[PaperData]) -> list[dict]:
         })
     return vertex
 
+
 # worker function in gen_edge
 def gen_edge_deal_vertex(idx: int) -> list[dict[str, str]]:
     global papers
     paper = papers[idx]
-    edges = []
+    targets: set[str] = set()
     for cite in paper.paper_citation[1]:
         if cite[2] != -1:
-            edges.append({
-                'source': str(paper.paper_id),
-                'target': str(cite[2]),
-            })
+            targets.add(str(cite[2]))
             continue
         if len(cite) > 3 and cite[3] != '':
             target = find_target_by_title(cite[3], papers)
         else:
             target = find_target(cite[1], papers)
         if target is not None:
-            edges.append({
-                'source': str(paper.paper_id),
-                'target': str(target),
-            })
+            targets.add(str(target))
+    edges = []
+    paper_id = str(paper.paper_id)
+    for target in targets:
+        edges.append({
+            'source': paper_id,
+            'target': str(target),
+        })
     return edges
 
 # worker init in gen_edge
@@ -83,44 +86,17 @@ def gen_edge(papers: list[PaperData], V: list[dict]):
         json.dump(edges, f, indent=4)
     return edges
 
-def visualize_graph(vertices: list[dict], edges: list[dict]):
-    g = gt.Graph(directed=True)
-    vertex_map = {}
+def export_graph(vertices: list[dict], edges: list[dict], filename: str):
+    net = Network(notebook=True, directed=True)
     
-    v_prop_id = g.new_vertex_property("string")
-    v_prop_label = g.new_vertex_property("string")
-    v_prop_title = g.new_vertex_property("string")
-    v_prop_author = g.new_vertex_property("string")
+    for vertex in vertices:
+        net.add_node(vertex['id'], label=vertex['label'], title=vertex['title'], author=vertex['author'])
     
-    for v in vertices:
-        vertex = g.add_vertex()
-        vertex_map[v['id']] = vertex
-        v_prop_id[vertex] = v['id']
-        v_prop_label[vertex] = v['label']
-        v_prop_title[vertex] = v['title']
-        v_prop_author[vertex] = v['author']
+    for edge in tqdm(edges):
+        net.add_edge(edge['source'], edge['target'])
     
-    e_prop_source = g.new_edge_property("string")
-    e_prop_target = g.new_edge_property("string")
-    
-    for e in edges:
-        if e['source'] in vertex_map and e['target'] in vertex_map:
-            edge = g.add_edge(vertex_map[e['source']], vertex_map[e['target']])
-            e_prop_source[edge] = e['source']
-            e_prop_target[edge] = e['target']
-    
-    g.vertex_properties['id'] = v_prop_id
-    g.vertex_properties['label'] = v_prop_label
-    g.vertex_properties['title'] = v_prop_title
-    g.vertex_properties['author'] = v_prop_author
-    g.edge_properties['source'] = e_prop_source
-    g.edge_properties['target'] = e_prop_target
-    
-    pos = gt.sfdp_layout(g)
-    gt.graph_draw(g, pos, output_size=(1000, 1000),
-                  vertex_text=g.vertex_properties['label'],
-                  vertex_font_size=10,
-                  output="graph_tool_visualization.png")
+    net.show_buttons(filter_=['physics'])
+    net.show(filename)
 
 if __name__ == '__main__':
     db.init_engine('sqlite:///../phocus/database.db')
@@ -130,6 +106,8 @@ if __name__ == '__main__':
     V = gen_vertex(papers)
     print(f"{len(V)} valid papers")
     E = gen_edge(papers, V)
+    V_set = set([v['id'] for v in V])
+    E = [e for e in E if e['source'] in V_set and e['target'] in V_set]
     print(f"{len(E)} valid references")
     
-    visualize_graph(V, E)
+    export_graph(V, E, "interactive_graph.html")

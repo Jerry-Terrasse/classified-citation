@@ -36,13 +36,13 @@ def calc_density(E: dict[str, list[str]], V: list[str], age: dict[str, int], thr
     return e / (len(v) * (len(v) - 1))
 
 if __name__ == '__main__':
-    # db.init_engine('sqlite:///../phocus/database.db') # 2.2w
+    db.init_engine('sqlite:///../phocus/database.db') # new 573
     # db.init_engine('sqlite:///../phocus/database.3w.db')
     # db.init_engine('sqlite:///../phocus/database.bak0227.db') # 1w
     # db.init_engine('sqlite:///../phocus/database.bak0204.db') # 4k
     # db.init_engine('sqlite:///../Downloads/database.db') # 2.8w
     # db.init_engine('sqlite:///database.db')
-    db.init_engine('sqlite:///../Downloads/db0509.db') # 2.8w
+    # db.init_engine('sqlite:///../Downloads/db0509.db') # 2.8w
     papers = db.select_paper_all()
     papers = [PaperData.from_Paper(paper) for paper in papers if paper.paper_citation.startswith("[true")]
     
